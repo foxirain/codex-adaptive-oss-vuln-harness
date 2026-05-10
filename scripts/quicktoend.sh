@@ -24,6 +24,7 @@ Options:
   --report-timeout SPEC    Report timeout per finding. Default: 20m
   --tier-min TIER          Minimum review tier for repro/report. Default: A
   --model MODEL            Optional Codex model override
+  --reasoning-effort EFFORT Optional Codex reasoning effort override: low, medium, high, or xhigh
   --sandbox MODE           Codex sandbox mode. Default: workspace-write
   --no-include-snippet     Do not pass --include-snippet to autopilot
   --unsafe-bypass          Pass --dangerously-bypass-approvals-and-sandbox
@@ -50,6 +51,7 @@ REPRO_TIMEOUT="45m"
 REPORT_TIMEOUT="20m"
 TIER_MIN="A"
 MODEL=""
+REASONING_EFFORT=""
 SANDBOX="workspace-write"
 INCLUDE_SNIPPET=1
 UNSAFE_BYPASS=0
@@ -94,6 +96,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --model)
       MODEL="$2"
+      shift 2
+      ;;
+    --reasoning-effort)
+      REASONING_EFFORT="$2"
       shift 2
       ;;
     --sandbox)
@@ -142,6 +148,9 @@ SIGNALS_PATH="$REPO_PATH/external_signals_${TODAY_UTC}.json"
 COMMON_ARGS=()
 if [[ -n "$MODEL" ]]; then
   COMMON_ARGS+=(--model "$MODEL")
+fi
+if [[ -n "$REASONING_EFFORT" ]]; then
+  COMMON_ARGS+=(--reasoning-effort "$REASONING_EFFORT")
 fi
 COMMON_ARGS+=(--sandbox "$SANDBOX")
 if [[ "$UNSAFE_BYPASS" -eq 1 ]]; then

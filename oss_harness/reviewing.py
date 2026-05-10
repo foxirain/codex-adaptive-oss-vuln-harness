@@ -5,6 +5,7 @@ from pathlib import Path
 
 from oss_harness.executor import parse_duration, run_codex_exec
 from oss_harness.findings import finding_slug
+from oss_harness.review_schema import normalize_review_record, structured_review_schema_text
 
 TIER_ORDER = {'S': 5, 'A': 4, 'B': 3, 'C': 2, 'D': 1}
 
@@ -16,6 +17,7 @@ def run_review(
     finding_files: list[Path],
     timeout_spec: str,
     model: str,
+    reasoning_effort: str,
     sandbox: str,
     full_auto: bool,
     unsafe_bypass: bool,
@@ -43,11 +45,13 @@ def run_review(
             stderr_file=stderr_file,
             timeout_seconds=parse_duration(timeout_spec),
             model=model,
+            reasoning_effort=reasoning_effort,
             sandbox=sandbox,
             full_auto=full_auto,
             unsafe_bypass=unsafe_bypass,
             add_dirs=[session_dir, review_dir, item_dir],
         )
+        _normalize_review_json_file(result_json)
         results.append({'finding': str(finding_file), 'returncode': artifacts.returncode, 'json': str(result_json), 'markdown': str(result_md)})
 
     summary_path = review_dir / 'REVIEW_SUMMARY.md'
@@ -77,20 +81,19 @@ Output requirements:
 2. Write a concise markdown review to {result_md}
 
 JSON schema:
-{{
-  "finding_file": "{finding_file.name}",
-  "title": "",
-  "tier": "S|A|B|C|D",
-  "confidence": "high|medium|low",
-  "disposition": "confirmed|strong|plausible|weak|reject",
-  "summary": "",
-  "reachability": "",
-  "attacker_control": "",
-  "impact": "",
-  "key_evidence": ["..."],
-  "blocking_gaps": ["..."],
-  "next_actions": ["..."]
-}}
+{structured_review_schema_text()}
+
+Structured review requirements:
+- Keep the existing flat summary fields (`summary`, `impact`, `key_evidence`, `blocking_gaps`, `next_actions`).
+- Also fill the structured fields. Dual-write is required.
+- `attacker_control`, `reachability`, `entrypoints`, `sinks`, and `evidence_locations` are required.
+- `candidate_components` and `candidate_boundaries` should be filled whenever the code evidence supports them.
+- `capabilities`, `preconditions`, `affected_assets`, `candidate_policies`, `candidate_invariants`, `exploit_path`, and `confidence_breakdown` are strongly preferred; use empty arrays/empty strings when unknown.
+- `entrypoints`, `sinks`, and `evidence_locations` must use exact repo-relative files when possible.
+- Do not use `null` for any field. Use `[]`, `""`, or an object with empty-string fields instead.
+- Do not collapse `attacker_control` or `reachability` into flat strings. They must be JSON objects matching the schema.
+- If you cannot find a sink or entrypoint confidently, still emit an empty array; do not omit the key.
+- Treat missing structured fields as an invalid answer.
 
 Markdown review requirements:
 - title
@@ -109,9 +112,10 @@ def _write_review_summary(review_dir: Path, summary_path: Path, index_path: Path
     items: list[dict] = []
     for review_json in sorted(review_dir.glob('*/review.json')):
         try:
-            data = json.loads(review_json.read_text(encoding='utf-8'))
+            data = normalize_review_record(json.loads(review_json.read_text(encoding='utf-8')))
         except Exception:
             continue
+        review_json.write_text(json.dumps(data, indent=2), encoding='utf-8')
         data['_path'] = str(review_json)
         items.append(data)
     items.sort(key=lambda item: (-TIER_ORDER.get(str(item.get('tier', 'D')).upper(), 0), str(item.get('title', ''))))
@@ -127,3 +131,14 @@ def _write_review_summary(review_dir: Path, summary_path: Path, index_path: Path
             lines.append(f"- {item.get('title') or item.get('finding_file')}: {item.get('summary', '')}")
         lines.append('')
     summary_path.write_text('\n'.join(lines).rstrip() + '\n', encoding='utf-8')
+
+
+def _normalize_review_json_file(path: Path) -> None:
+    if not path.exists():
+        return
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+    except Exception:
+        return
+    normalized = normalize_review_record(payload)
+    path.write_text(json.dumps(normalized, indent=2), encoding='utf-8')

@@ -16,6 +16,7 @@ Options:
   --duration SPEC           Autopilot total duration. Default: 2h
   --per-run-timeout SPEC    Autopilot per-run timeout. Default: 30m
   --model MODEL             Optional Codex model override
+  --reasoning-effort EFFORT Optional Codex reasoning effort override: low, medium, high, or xhigh
   --sandbox MODE            Codex sandbox mode. Default: workspace-write
   --no-include-snippet      Do not pass --include-snippet to autopilot
   --unsafe-bypass           Pass --dangerously-bypass-approvals-and-sandbox
@@ -37,6 +38,7 @@ OUT_DIR="/tmp/oss-artifacts"
 DURATION="2h"
 PER_RUN_TIMEOUT="30m"
 MODEL=""
+REASONING_EFFORT=""
 SANDBOX="workspace-write"
 INCLUDE_SNIPPET=1
 UNSAFE_BYPASS=0
@@ -61,6 +63,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --model)
       MODEL="$2"
+      shift 2
+      ;;
+    --reasoning-effort)
+      REASONING_EFFORT="$2"
       shift 2
       ;;
     --sandbox)
@@ -105,6 +111,9 @@ SIGNALS_PATH="$REPO_PATH/external_signals_${TODAY_UTC}.json"
 COMMON_ARGS=()
 if [[ -n "$MODEL" ]]; then
   COMMON_ARGS+=(--model "$MODEL")
+fi
+if [[ -n "$REASONING_EFFORT" ]]; then
+  COMMON_ARGS+=(--reasoning-effort "$REASONING_EFFORT")
 fi
 COMMON_ARGS+=(--sandbox "$SANDBOX")
 if [[ "$UNSAFE_BYPASS" -eq 1 ]]; then

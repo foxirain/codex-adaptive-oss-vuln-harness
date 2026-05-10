@@ -32,6 +32,7 @@ def run_codex_exec(
     stderr_file: Path,
     timeout_seconds: int,
     model: str,
+    reasoning_effort: str,
     sandbox: str,
     full_auto: bool,
     unsafe_bypass: bool,
@@ -61,6 +62,8 @@ def run_codex_exec(
         cmd.extend(['--sandbox', sandbox])
     if model:
         cmd.extend(['-m', model])
+    if reasoning_effort:
+        cmd.extend(['-c', f'model_reasoning_effort="{reasoning_effort}"'])
 
     try:
         proc = subprocess.run(

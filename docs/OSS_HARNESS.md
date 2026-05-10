@@ -45,6 +45,8 @@ python3 -m oss_harness inspect /tmp/oss-artifacts/session-YYYYMMDDTHHMMSSZ --top
 python3 -m oss_harness autopilot /tmp/oss-artifacts/session-YYYYMMDDTHHMMSSZ --duration 2h --per-run-timeout 20m --include-snippet
 ```
 
+By default, `scan` creates prompt bundles for the top 45 ranked candidates, or fewer if the session retains fewer candidates.
+
 ## What It Scores
 
 The scanner combines several signal classes:
@@ -104,6 +106,36 @@ Each ranked target now carries more context into Codex:
 
 This keeps unattended runs from wasting the whole budget on one bad branch.
 
+Autopilot also writes lightweight local diagnostics under `autopilot/`:
+
+- `AUTOPILOT_PROGRESS.txt`: high-level run log
+- `AUTOPILOT_STATUS.txt`: latest status snapshot
+- `AUTOPILOT_TRACE.tsv`: low-overhead event trace with render/ingest/exec durations and candidate skip or cooling reasons
+
 ## Notes
 
 This is still a prioritization engine, not a semantic proof engine. The goal is to maximize Codex time on the most promising, attacker-reachable surfaces while preserving enough structure that confirmed findings are specific and reportable.
+
+## Quicksearchmax
+
+`scripts/quicksearchmax.sh` runs four independent sessions:
+
+- `default`
+- `nosignal`
+- `coldrisk`
+- `hotrisk`
+
+Each session gets its own `session_dir`, `review_state.json`, `codex_response.txt`, `autopilot/`, and `review/`. The script then builds `merged-review/review_index.json` and `merged-review/REVIEW_SUMMARY.md` without another Codex pass, so merged review ranking is deterministic and does not depend on `--unsafe-bypass`.
+
+Use `--model MODEL` and `--reasoning-effort low|medium|high|xhigh` to apply the same Codex settings to bootstrap, every parallel autopilot session, review, repro, and report generation.
+
+## Review And Chaining
+
+`review` now defaults to stronger findings only:
+
+- `cve_candidate`
+- `plausible_security_bug`
+
+Use `--include-latent` if you explicitly want `latent_bug` findings reviewed one by one.
+
+Use `chain` for `latent_bug` findings. It analyzes latent findings in batches and writes chaining-oriented artifacts under `chain/` instead of assigning S/A/B/C/D tiers one file at a time.

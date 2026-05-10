@@ -21,7 +21,7 @@ A finding is weak unless you can explain:
 4. concrete impact
 5. why existing checks do not stop exploitation
 
-Do not report policy-excluded issues. If the evidence is incomplete, ask for one best next target instead of forcing a bug claim.
+Do not report policy-excluded issues. If the evidence is incomplete, ask for exactly one best next target instead of forcing a bug claim. The next target must be a single `<file>` or `<file>::<symbol>` value, not a list.
 '''
 
 
@@ -47,7 +47,11 @@ def render_bundle_prompt(repo_root: Path, candidate: Candidate, policy: dict) ->
         for symbol in candidate.primary_symbols[:6]
     ) or '- no symbol-level hints captured'
     semantic_summary = '\n'.join(f'- {item}' for item in candidate.semantic_summary[:6]) or '- no semantic summary captured'
-    policy_summary = render_policy_summary(policy) or 'No explicit policy file was supplied. Use general CVE-quality judgment and focus on concrete security impact.'
+    policy_summary = (
+        policy.get('policy_summary_override', '')
+        or render_policy_summary(policy)
+        or 'No explicit policy file was supplied. Use general CVE-quality judgment and focus on concrete security impact.'
+    )
     return f"""{BASE_PLAYBOOK}
 
 Project policy:
@@ -92,5 +96,5 @@ Audit workflow:
    - evidence with exact files and functions
    - exploit sketch or proof strategy
    - confidence 1-10
-6. If the branch is not good enough, give one best next target only.
+6. If the branch is not good enough, give exactly one best next target only in `<file>` or `<file>::<symbol>` form. Do not list alternatives.
 """

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from oss_harness.models import Candidate, LanguageStat
+from oss_harness.models import Candidate, ExternalSignal, LanguageStat, Signal, SymbolHint
 from oss_harness.policy import render_policy_summary
 from oss_harness.prompting import render_bundle_prompt
 from oss_harness.session import initialize_state
@@ -69,8 +69,93 @@ def write_session_bundle(repo_root: Path, out_dir: Path, candidates: list[Candid
         '3. Record verdicts with `oss-harness record ...` or let `oss-harness autopilot ...` ingest them automatically.',
         '4. Save confirmed issues into copies of `finding_template.json`.',
     ])
+
     (out_dir / 'SESSION.md').write_text('\n'.join(session_lines) + '\n', encoding='utf-8')
     return out_dir
+
+
+def ensure_prompt_bundle(session_dir: Path, manifest: dict, rank: int) -> tuple[Path, Path]:
+    candidates = manifest.get('candidates', [])
+    if rank < 1 or rank > len(candidates):
+        raise SystemExit(f'rank out of range: {rank} (1-{len(candidates)})')
+    candidate_dict = candidates[rank - 1]
+    prompt_path, snippet_path = _bundle_paths(session_dir, rank, candidate_dict['path'])
+    if prompt_path.exists():
+        return prompt_path, snippet_path
+
+    repo_root = Path(manifest['repo_root']).expanduser().resolve()
+    candidate = _candidate_from_manifest(repo_root, candidate_dict)
+    prompt_path.parent.mkdir(parents=True, exist_ok=True)
+    prompt_path.write_text(
+        render_bundle_prompt(
+            repo_root,
+            candidate,
+            {
+                'path': manifest.get('policy_path', ''),
+                'policy_summary_override': manifest.get('policy_summary', ''),
+                'framework_hints': manifest.get('framework_hints', []),
+                'preferred_sinks': manifest.get('preferred_sinks', []),
+            },
+        ),
+        encoding='utf-8',
+    )
+    snippet_path.write_text(_extract_snippet(candidate), encoding='utf-8')
+    return prompt_path, snippet_path
+
+
+def _candidate_from_manifest(repo_root: Path, payload: dict) -> Candidate:
+    return Candidate(
+        path=repo_root / str(payload.get('path', '')),
+        language=str(payload.get('language', '') or ''),
+        subsystem=str(payload.get('subsystem', '') or ''),
+        exposure=str(payload.get('exposure', '') or ''),
+        score=int(payload.get('score', 0) or 0),
+        attack_surfaces=[str(item) for item in payload.get('attack_surfaces', [])],
+        sink_kinds=[str(item) for item in payload.get('sink_kinds', [])],
+        framework_hints=[str(item) for item in payload.get('framework_hints', [])],
+        entrypoint_markers=[str(item) for item in payload.get('entrypoint_markers', [])],
+        primary_symbols=[
+            SymbolHint(
+                name=str(symbol.get('name', '') or ''),
+                kind=str(symbol.get('kind', '') or ''),
+                line_start=int(symbol.get('line_start', 1) or 1),
+                line_end=int(symbol.get('line_end', symbol.get('line_start', 1)) or 1),
+                score=int(symbol.get('score', 0) or 0),
+                tags=[str(tag) for tag in symbol.get('tags', [])],
+            )
+            for symbol in payload.get('primary_symbols', [])
+        ],
+        semantic_summary=[str(item) for item in payload.get('semantic_summary', [])],
+        reasons=[str(item) for item in payload.get('reasons', [])],
+        signals=[
+            Signal(
+                name=str(signal.get('name', '') or ''),
+                weight=int(signal.get('weight', 0) or 0),
+                line_no=int(signal.get('line_no', 1) or 1),
+                line=str(signal.get('line', '') or ''),
+                rationale=str(signal.get('rationale', '') or ''),
+                language=str(signal.get('language', payload.get('language', '')) or ''),
+            )
+            for signal in payload.get('signals', [])
+        ],
+        path_signals=[str(item) for item in payload.get('path_signals', [])],
+        external_signals=[
+            ExternalSignal(
+                source=str(signal.get('source', '') or ''),
+                weight=int(signal.get('weight', 0) or 0),
+                summary=str(signal.get('summary', '') or ''),
+                url=str(signal.get('url', '') or ''),
+                metadata=dict(signal.get('metadata', {}) or {}),
+            )
+            for signal in payload.get('external_signals', [])
+        ],
+    )
+
+
+def _bundle_paths(session_dir: Path, rank: int, rel_path: str) -> tuple[Path, Path]:
+    bundle_dir = session_dir / 'bundles'
+    prefix = f"{rank:02d}-{rel_path.replace('/', '__')}"
+    return bundle_dir / f'{prefix}.md', bundle_dir / f'{prefix}.snippet.txt'
 
 
 def _extract_snippet(candidate: Candidate, radius: int = 4) -> str:

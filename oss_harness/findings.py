@@ -46,3 +46,33 @@ def finding_slug(path: Path) -> str:
     stem = re.sub(r'[^a-zA-Z0-9._-]+', '-', path.stem).strip('-').lower() or 'finding'
     suffix = hashlib.sha1(str(path).encode('utf-8')).hexdigest()[:8]
     return f'{stem}-{suffix}'
+
+
+def finding_verdict(path: Path) -> str:
+    try:
+        text = path.read_text(encoding='utf-8')
+    except OSError:
+        return ''
+    for line in text.splitlines()[:8]:
+        lowered = line.strip().strip('`').lower()
+        if lowered.startswith('strict verdict:'):
+            lowered = lowered.split(':', 1)[1].strip().strip('`')
+        if lowered.startswith('- '):
+            lowered = lowered[2:].strip().strip('`')
+        if lowered == 'cve_candidate':
+            return 'cve_candidate'
+        if lowered == 'plausible_security_bug':
+            return 'plausible_security_bug'
+        if lowered == 'latent_bug':
+            return 'latent_bug'
+        if lowered == 'discarding':
+            return 'discarding'
+        if lowered == 'needs_more_context':
+            return 'needs_more_context'
+        if lowered == 'not_cve_candidate':
+            return 'discarding'
+    return ''
+
+
+def filter_finding_files_by_verdict(finding_files: list[Path], allowed_verdicts: set[str]) -> list[Path]:
+    return [path for path in finding_files if finding_verdict(path) in allowed_verdicts]

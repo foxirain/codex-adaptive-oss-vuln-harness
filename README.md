@@ -36,3 +36,23 @@ Templates:
 Detailed usage:
 
 - `docs/OSS_HARNESS.md`
+
+## Multi-Session Search
+
+Use `scripts/quicksearchmax.sh` to run four isolated sessions and merge their review output:
+
+```bash
+scripts/quicksearchmax.sh /path/to/repo --out /tmp/oss-artifacts
+```
+
+Pass `--model MODEL` and `--reasoning-effort low|medium|high|xhigh` to apply the same Codex settings to bootstrap, autopilot, review, repro/report helpers, and every parallel session.
+
+It creates:
+
+- `default`: bootstrap signals
+- `nosignal`: no external signals
+- `coldrisk`: lower-heat, potentially risky paths
+- `hotrisk`: high-confidence external-signal paths
+- `merged-review`: deterministic merged ranking with session provenance
+
+`scan` generates prompt bundles for the top 45 ranked candidates by default, or fewer when fewer candidates are retained.

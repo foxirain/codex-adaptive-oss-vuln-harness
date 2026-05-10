@@ -4,19 +4,22 @@ import re
 from pathlib import Path
 
 VERDICT_RULES = [
-    ('latent bug but not currently reachable', 'latent_bug'),
-    ('not a cve candidate', 'not_cve_candidate'),
-    ('not_a_cve_candidate', 'not_cve_candidate'),
-    ('not a security issue', 'not_cve_candidate'),
-    ('plausible security bug', 'plausible_security_bug'),
-    ('plausible_security_bug', 'plausible_security_bug'),
-    ('needs more context', 'needs_more_context'),
-    ('needs_more_context', 'needs_more_context'),
-    ('cve candidate', 'cve_candidate'),
     ('cve_candidate', 'cve_candidate'),
-    ('latent bug', 'latent_bug'),
+    ('cve candidate', 'cve_candidate'),
+    ('plausible_security_bug', 'plausible_security_bug'),
+    ('plausible security bug', 'plausible_security_bug'),
     ('latent_bug', 'latent_bug'),
-    ('not_cve_candidate', 'not_cve_candidate'),
+    ('latent bug but not currently reachable', 'latent_bug'),
+    ('latent bug', 'latent_bug'),
+    ('needs_more_context', 'needs_more_context'),
+    ('needs more context', 'needs_more_context'),
+    ('discarding', 'discarding'),
+    ('discarded', 'discarding'),
+    ('discard', 'discarding'),
+    ('not a cve candidate', 'discarding'),
+    ('not_a_cve_candidate', 'discarding'),
+    ('not_cve_candidate', 'discarding'),
+    ('not a security issue', 'discarding'),
 ]
 
 VERDICT_PATTERNS = [
@@ -66,7 +69,7 @@ def _extract_verdict(text: str) -> str:
                 return mapped
     lowered = text.lower()
     for needle, mapped in VERDICT_RULES:
-        if needle in lowered:
+        if re.search(rf'(?<![a-z_]){re.escape(needle)}(?![a-z_])', lowered):
             return mapped
     raise ValueError('could not extract verdict from Codex response')
 
@@ -112,6 +115,6 @@ def _map_verdict(value: str) -> str:
         return ''
     lowered = value.lower().strip()
     for needle, mapped in VERDICT_RULES:
-        if lowered == needle or needle in lowered:
+        if lowered == needle:
             return mapped
     return ''

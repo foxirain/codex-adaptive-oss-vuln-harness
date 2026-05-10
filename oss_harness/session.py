@@ -30,6 +30,32 @@ def _tail_followup_depth(history: list[dict]) -> int:
     return depth
 
 
+def _normalize_bandit_bucket(bucket: dict | None) -> dict[str, dict]:
+    normalized: dict[str, dict] = {}
+    for key, value in (bucket or {}).items():
+        if not key:
+            continue
+        stats = dict(value or {})
+        normalized[str(key)] = {
+            'plays': int(stats.get('plays', 0) or 0),
+            'discounted_plays': float(stats.get('discounted_plays', 0.0) or 0.0),
+            'discounted_reward': float(stats.get('discounted_reward', 0.0) or 0.0),
+            'discounted_cost': float(stats.get('discounted_cost', 0.0) or 0.0),
+            'timeout_count': int(stats.get('timeout_count', 0) or 0),
+            'last_step': int(stats.get('last_step', 0) or 0),
+        }
+    return normalized
+
+
+def _normalize_bandit_state(bandit: dict | None) -> dict:
+    raw = dict(bandit or {})
+    return {
+        'global_step': int(raw.get('global_step', 0) or 0),
+        'subsystems': _normalize_bandit_bucket(raw.get('subsystems')),
+        'targets': _normalize_bandit_bucket(raw.get('targets')),
+    }
+
+
 def _normalize_state(session_dir: Path, state: dict) -> dict:
     normalized = {
         'current_rank': int(state.get('current_rank', 1) or 1),
@@ -41,6 +67,10 @@ def _normalize_state(session_dir: Path, state: dict) -> dict:
         'pending_target': state.get('pending_target', '') or '',
         'pending_prompt_source': state.get('pending_prompt_source', '') or '',
         'pending_response_file': state.get('pending_response_file') or str(response_path(session_dir)),
+        'pending_subsystem': state.get('pending_subsystem', '') or '',
+        'pending_runtime_ms': int(state.get('pending_runtime_ms', 0) or 0),
+        'dynamic_tail_shortlist': [int(value) for value in state.get('dynamic_tail_shortlist', []) if int(value or 0) > 0],
+        'bandit': _normalize_bandit_state(state.get('bandit')),
     }
     if normalized['manual_followup_depth'] is None:
         normalized['manual_followup_depth'] = _tail_followup_depth(normalized['history'])
@@ -76,6 +106,8 @@ def set_pending_review(session_dir: Path, rank: int | None, target: str, prompt_
     state['pending_target'] = target
     state['pending_prompt_source'] = prompt_source
     state['pending_response_file'] = str(response_path(session_dir))
+    state['pending_subsystem'] = ''
+    state['pending_runtime_ms'] = 0
     save_state(session_dir, state)
     return state
 
@@ -120,6 +152,8 @@ def record_review(
     state['pending_target'] = ''
     state['pending_prompt_source'] = ''
     state['pending_response_file'] = str(response_path(session_dir))
+    state['pending_subsystem'] = ''
+    state['pending_runtime_ms'] = 0
     save_state(session_dir, state)
     return state
 

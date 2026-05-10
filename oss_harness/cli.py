@@ -9,8 +9,10 @@ from pathlib import Path
 
 from oss_harness.autopilot import run_autopilot
 from oss_harness.automation import run_bootstrap
-from oss_harness.bundle import write_session_bundle
-from oss_harness.findings import list_finding_files, select_finding_files
+from oss_harness.bundle import ensure_prompt_bundle, write_session_bundle
+from oss_harness.chaining import run_chain_analysis
+from oss_harness.findings import filter_finding_files_by_verdict, list_finding_files, select_finding_files
+from oss_harness.followup import render_followup_snippet
 from oss_harness.ingest import load_response, parse_response
 from oss_harness.policy import find_default_policy, load_policy, write_policy_template
 from oss_harness.reporting import run_report
@@ -21,11 +23,12 @@ from oss_harness.targeting import discover_candidates, load_json_config
 
 SUBCOMMANDS = {
     'scan', 'inspect', 'codex', 'next', 'record', 'ingest', 'loop', 'status', 'autopilot', 'init-policy',
-    'bootstrap', 'review', 'repro', 'report',
+    'bootstrap', 'review', 'chain', 'repro', 'report',
 }
-VERDICTS = ['cve_candidate', 'plausible_security_bug', 'latent_bug', 'not_cve_candidate', 'needs_more_context']
-MAX_MANUAL_FOLLOWUPS = 2
+VERDICTS = ['cve_candidate', 'plausible_security_bug', 'latent_bug', 'discarding', 'needs_more_context']
+MAX_MANUAL_FOLLOWUPS = 3
 TIER_CHOICES = ['S', 'A', 'B', 'C', 'D']
+CODEX_REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh']
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     scan_parser.add_argument('--crash-dir', type=Path, help='Optional directory of sanitizer, panic, or crash logs to map back into repo files.')
     scan_parser.add_argument('--out', type=Path, default=Path('artifacts'), help='Directory where session artifacts will be written.')
     scan_parser.add_argument('--limit', type=int, default=120, help='Maximum number of ranked candidates to retain.')
-    scan_parser.add_argument('--top', type=int, default=30, help='How many prompt bundles to generate.')
+    scan_parser.add_argument('--top', type=int, default=45, help='How many prompt bundles to generate.')
 
     inspect_parser = subparsers.add_parser('inspect', help='Print a ranked summary from a generated session.')
     inspect_parser.add_argument('session_dir', type=Path, help='Path to a generated session directory.')
@@ -95,7 +98,14 @@ def build_parser() -> argparse.ArgumentParser:
     review_parser = subparsers.add_parser('review', help='Use Codex to re-review finding files and assign tiers.')
     review_parser.add_argument('session_dir', type=Path, help='Path to a generated session directory.')
     review_parser.add_argument('--finding', action='append', default=[], help='Optional finding file path, filename, or substring selector. Repeatable.')
+    review_parser.add_argument('--include-latent', action='store_true', help='Include latent_bug findings in review. By default, only cve_candidate and plausible_security_bug findings are reviewed.')
     _add_codex_task_args(review_parser, timeout_default='20m')
+
+    chain_parser = subparsers.add_parser('chain', help='Analyze latent bug findings in batches for chaining and variant-hunt planning.')
+    chain_parser.add_argument('session_dir', type=Path, help='Path to a generated session directory.')
+    chain_parser.add_argument('--finding', action='append', default=[], help='Optional finding file path, filename, or substring selector. Repeatable.')
+    chain_parser.add_argument('--batch-size', type=int, default=25, help='How many latent finding files to analyze per batch.')
+    _add_codex_task_args(chain_parser, timeout_default='20m')
 
     repro_parser = subparsers.add_parser('repro', help='Generate reproduction scripts and result files for selected findings.')
     repro_parser.add_argument('session_dir', type=Path, help='Path to a generated session directory.')
@@ -116,6 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     autopilot_parser.add_argument('--per-run-timeout', default='20m', help='Maximum time per Codex execution. Example: 10m.')
     autopilot_parser.add_argument('--include-snippet', action='store_true', help='Append generated code snippets to prompts.')
     autopilot_parser.add_argument('--model', default='', help='Optional Codex model override.')
+    autopilot_parser.add_argument('--reasoning-effort', choices=CODEX_REASONING_EFFORTS, default='', help='Optional Codex reasoning effort override.')
     autopilot_parser.add_argument('--sandbox', choices=['read-only', 'workspace-write', 'danger-full-access'], default='workspace-write', help='Sandbox mode for codex exec when not bypassing safeguards.')
     autopilot_parser.add_argument('--no-full-auto', action='store_true', help='Do not pass --full-auto to codex exec.')
     autopilot_parser.add_argument('--dangerously-bypass-approvals-and-sandbox', action='store_true', help="Pass through Codex's unsafe bypass flag.")
@@ -127,6 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _add_codex_task_args(parser: argparse.ArgumentParser, *, timeout_default: str) -> None:
     parser.add_argument('--timeout', default=timeout_default, help=f'Maximum time budget for each Codex task. Default: {timeout_default}.')
     parser.add_argument('--model', default='', help='Optional Codex model override.')
+    parser.add_argument('--reasoning-effort', choices=CODEX_REASONING_EFFORTS, default='', help='Optional Codex reasoning effort override.')
     parser.add_argument('--sandbox', choices=['read-only', 'workspace-write', 'danger-full-access'], default='workspace-write', help='Sandbox mode for codex exec when not bypassing safeguards.')
     parser.add_argument('--no-full-auto', action='store_true', help='Do not pass --full-auto to codex exec.')
     parser.add_argument('--dangerously-bypass-approvals-and-sandbox', action='store_true', help="Pass through Codex's unsafe bypass flag.")
@@ -162,6 +174,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_status(args)
     if args.command == 'review':
         return _run_review(args)
+    if args.command == 'chain':
+        return _run_chain(args)
     if args.command == 'repro':
         return _run_repro(args)
     if args.command == 'report':
@@ -198,6 +212,7 @@ def _run_bootstrap(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         out_dir=out_dir,
         timeout_spec=args.timeout,
         model=args.model,
+        reasoning_effort=args.reasoning_effort,
         sandbox=args.sandbox,
         full_auto=not args.no_full_auto,
         unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox,
@@ -333,17 +348,44 @@ def _run_review(args: argparse.Namespace) -> int:
     session_dir = Path(args.session_dir).expanduser().resolve()
     manifest = _load_manifest(session_dir)
     finding_files = select_finding_files(session_dir, args.finding)
+    if not args.include_latent:
+        finding_files = filter_finding_files_by_verdict(finding_files, {'cve_candidate', 'plausible_security_bug'})
     if not finding_files:
-        raise SystemExit(f'no finding files selected under {session_dir / "autopilot" / "findings"}')
+        raise SystemExit(f'no review-eligible finding files selected under {session_dir / "autopilot" / "findings"}')
     result = run_review(
         session_dir,
         repo_root=Path(manifest['repo_root']).expanduser().resolve(),
         finding_files=finding_files,
         timeout_spec=args.timeout,
         model=args.model,
+        reasoning_effort=args.reasoning_effort,
         sandbox=args.sandbox,
         full_auto=not args.no_full_auto,
         unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox,
+    )
+    for key, value in result.items():
+        print(f'{key}={value}')
+    return 0
+
+
+def _run_chain(args: argparse.Namespace) -> int:
+    session_dir = Path(args.session_dir).expanduser().resolve()
+    manifest = _load_manifest(session_dir)
+    finding_files = select_finding_files(session_dir, args.finding)
+    finding_files = filter_finding_files_by_verdict(finding_files, {'latent_bug'})
+    if not finding_files:
+        raise SystemExit(f'no latent_bug finding files selected under {session_dir / "autopilot" / "findings"}')
+    result = run_chain_analysis(
+        session_dir,
+        repo_root=Path(manifest['repo_root']).expanduser().resolve(),
+        finding_files=finding_files,
+        timeout_spec=args.timeout,
+        model=args.model,
+        reasoning_effort=args.reasoning_effort,
+        sandbox=args.sandbox,
+        full_auto=not args.no_full_auto,
+        unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox,
+        batch_size=max(1, int(args.batch_size)),
     )
     for key, value in result.items():
         print(f'{key}={value}')
@@ -363,6 +405,7 @@ def _run_repro(args: argparse.Namespace) -> int:
         finding_files=finding_files,
         timeout_spec=args.timeout,
         model=args.model,
+        reasoning_effort=args.reasoning_effort,
         sandbox=args.sandbox,
         full_auto=not args.no_full_auto,
         unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox,
@@ -387,6 +430,7 @@ def _run_report(args: argparse.Namespace) -> int:
         template_text=template_text,
         timeout_spec=args.timeout,
         model=args.model,
+        reasoning_effort=args.reasoning_effort,
         sandbox=args.sandbox,
         full_auto=not args.no_full_auto,
         unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox,
@@ -398,7 +442,7 @@ def _run_report(args: argparse.Namespace) -> int:
 
 
 def _run_autopilot(args: argparse.Namespace) -> int:
-    return run_autopilot(Path(args.session_dir), include_snippet=args.include_snippet, duration_spec=args.duration, per_run_timeout_spec=args.per_run_timeout, model=args.model, sandbox=args.sandbox, full_auto=not args.no_full_auto, unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox, stop_on_finding=args.stop_on_finding)
+    return run_autopilot(Path(args.session_dir), include_snippet=args.include_snippet, duration_spec=args.duration, per_run_timeout_spec=args.per_run_timeout, model=args.model, reasoning_effort=args.reasoning_effort, sandbox=args.sandbox, full_auto=not args.no_full_auto, unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox, stop_on_finding=args.stop_on_finding)
 
 
 
@@ -423,7 +467,7 @@ def _load_rank_prompt(session_dir: Path, manifest: dict, rank: int) -> tuple[str
     prompt_path = bundle_dir / f'{bundle_prefix}.md'
     snippet_path = bundle_dir / f'{bundle_prefix}.snippet.txt'
     if not prompt_path.exists():
-        raise SystemExit(f'missing prompt bundle: {prompt_path}. Rerun `oss-harness scan` with the current harness version and use the new session directory.')
+        prompt_path, snippet_path = ensure_prompt_bundle(session_dir, manifest, rank)
     return prompt_path.read_text(encoding='utf-8'), prompt_path, snippet_path, candidate['path']
 
 
@@ -445,7 +489,7 @@ def _print_next_prompt(session_dir: Path, include_snippet: bool) -> None:
         manual_target = ''
         manual_prompt = ''
     if manual_target:
-        prompt = _manual_followup_prompt(state, manual_target, manual_prompt)
+        prompt = _manual_followup_prompt(state, Path(manifest['repo_root']).expanduser().resolve(), manual_target, manual_prompt)
         set_pending_review(session_dir, None, manual_target, str(session_dir / 'review_state.json'))
         _print_codex_runbook(manifest['repo_root'], prompt, session_dir / 'review_state.json', None, False, response_path(session_dir))
         return
@@ -521,7 +565,7 @@ def _is_actionable_candidate(path: str) -> bool:
 
 
 
-def _manual_followup_prompt(state: dict, manual_target: str, manual_prompt: str) -> str:
+def _manual_followup_prompt(state: dict, repo_root: Path, manual_target: str, manual_prompt: str) -> str:
     history = state.get('history', [])
     previous = history[-1] if history else {}
     lines = ['Continue from the previous audit.', 'Do not restart broad review.', '', f"Previous verdict: {previous.get('verdict', '')}", f"Previous target: {previous.get('target', '')}"]
@@ -529,10 +573,13 @@ def _manual_followup_prompt(state: dict, manual_target: str, manual_prompt: str)
     if notes:
         lines.append(f'Previous notes: {notes}')
     lines.extend(['', f'Now focus only on: {manual_target}'])
+    snippet = render_followup_snippet(repo_root, manual_target)
+    if snippet:
+        lines.extend(['', 'Target-local snippet:', snippet.rstrip()])
     if manual_prompt:
         lines.extend(['', manual_prompt.strip()])
     else:
-        lines.extend(['', 'Requirements:', '1. Confirm the exact attacker-reachable path into this target.', '2. Validate concrete attacker control, trust-boundary crossing, and security impact.', '3. If nothing concrete exists, give a strict verdict and the single best next target.'])
+        lines.extend(['', 'Requirements:', '1. Stay anchored to the target-local snippet first; only expand outward if needed to confirm reachability.', '2. Confirm the exact attacker-reachable path into this target.', '3. Validate concrete attacker control, trust-boundary crossing, and security impact.', '4. If nothing concrete exists, give a strict verdict and exactly one best next target.', '5. Output that target in `<file>` or `<file>::<symbol>` form only; do not list alternatives or multiple symbols.'])
     return '\n'.join(lines) + '\n'
 
 
