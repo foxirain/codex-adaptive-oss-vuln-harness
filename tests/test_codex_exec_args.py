@@ -30,6 +30,9 @@ class CodexExecArgsTests(unittest.TestCase):
                 )
 
             cmd = mocked_run.call_args.args[0]
+            self.assertNotIn('--add-dir', cmd)
+            self.assertEqual(mocked_run.call_args.kwargs['cwd'], str(root))
+            self.assertIn('--full-auto', cmd)
             self.assertIn('-m', cmd)
             self.assertEqual(cmd[cmd.index('-m') + 1], 'gpt-5.5')
             self.assertIn('-c', cmd)
@@ -75,10 +78,57 @@ class CodexExecArgsTests(unittest.TestCase):
                 )
 
             cmd = mocked_popen.call_args.args[0]
+            self.assertNotIn('--add-dir', cmd)
+            self.assertEqual(mocked_popen.call_args.kwargs['cwd'], str(root))
             self.assertIn('-m', cmd)
             self.assertEqual(cmd[cmd.index('-m') + 1], 'gpt-5.5')
             self.assertIn('-c', cmd)
             self.assertEqual(cmd[cmd.index('-c') + 1], 'model_reasoning_effort="xhigh"')
+
+    def test_executor_truncates_stale_response_before_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            response = root / 'response.txt'
+            response.write_text('stale response', encoding='utf-8')
+            with patch('oss_harness.executor.subprocess.run') as mocked_run:
+                mocked_run.return_value = subprocess.CompletedProcess([], 1, stdout='', stderr='failed')
+                result = run_codex_exec(
+                    repo_root=root,
+                    prompt_text='prompt',
+                    response_file=response,
+                    stdout_file=root / 'stdout.txt',
+                    stderr_file=root / 'stderr.txt',
+                    timeout_seconds=1,
+                    model='',
+                    reasoning_effort='',
+                    sandbox='read-only',
+                    full_auto=False,
+                    unsafe_bypass=False,
+                )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(response.read_text(encoding='utf-8'), '')
+            cmd = mocked_run.call_args.args[0]
+            self.assertNotIn('--full-auto', cmd)
+            self.assertEqual(cmd[cmd.index('--sandbox') + 1], 'read-only')
+
+    def test_full_auto_cannot_be_combined_with_read_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(ValueError, 'cannot be combined'):
+                run_codex_exec(
+                    repo_root=root,
+                    prompt_text='prompt',
+                    response_file=root / 'response.txt',
+                    stdout_file=root / 'stdout.txt',
+                    stderr_file=root / 'stderr.txt',
+                    timeout_seconds=1,
+                    model='',
+                    reasoning_effort='',
+                    sandbox='read-only',
+                    full_auto=True,
+                    unsafe_bypass=False,
+                )
 
 
 if __name__ == '__main__':

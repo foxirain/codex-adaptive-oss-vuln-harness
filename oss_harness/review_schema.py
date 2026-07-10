@@ -3,9 +3,175 @@ from __future__ import annotations
 from copy import deepcopy
 import re
 from typing import Any
+from pathlib import Path
+
+from oss_harness.paths import safe_output_relative, safe_repo_file
 
 
 REVIEW_SCHEMA_VERSION = "2.0"
+TIERS = {'S', 'A', 'B', 'C', 'D'}
+CONFIDENCE_LEVELS = {'high', 'medium', 'low'}
+DISPOSITIONS = {'confirmed', 'strong', 'plausible', 'weak', 'reject'}
+TIER_DISPOSITIONS = {'S': 'confirmed', 'A': 'strong', 'B': 'plausible', 'C': 'weak', 'D': 'reject'}
+REQUIRED_RAW_FIELDS = {
+    'schema_version': str,
+    'finding_file': str,
+    'title': str,
+    'tier': str,
+    'confidence': str,
+    'disposition': str,
+    'summary': str,
+    'impact': str,
+    'attacker_control': dict,
+    'reachability': dict,
+    'entrypoints': list,
+    'sinks': list,
+    'evidence_locations': list,
+    'candidate_components': dict,
+    'candidate_boundaries': list,
+    'capabilities': list,
+    'preconditions': list,
+    'affected_assets': list,
+    'candidate_policies': list,
+    'candidate_invariants': list,
+    'exploit_path': list,
+    'confidence_breakdown': dict,
+    'key_evidence': list,
+    'blocking_gaps': list,
+    'next_actions': list,
+}
+
+
+def validate_raw_review_record(payload: object, *, repo_root: Path | None = None) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError('review must be a JSON object')
+    for field, expected_type in REQUIRED_RAW_FIELDS.items():
+        if field not in payload:
+            raise ValueError(f'missing required review field: {field}')
+        value = payload[field]
+        if not isinstance(value, expected_type) or (expected_type is int and isinstance(value, bool)):
+            raise ValueError(f'review field {field} must be {expected_type.__name__}')
+    if payload['schema_version'] != REVIEW_SCHEMA_VERSION:
+        raise ValueError(f"schema_version must be {REVIEW_SCHEMA_VERSION}")
+    tier = payload['tier'].strip().upper()
+    confidence = payload['confidence'].strip().lower()
+    disposition = payload['disposition'].strip().lower()
+    if tier not in TIERS:
+        raise ValueError(f'invalid review tier: {payload["tier"]!r}')
+    if confidence not in CONFIDENCE_LEVELS:
+        raise ValueError(f'invalid review confidence: {payload["confidence"]!r}')
+    if disposition not in DISPOSITIONS:
+        raise ValueError(f'invalid review disposition: {payload["disposition"]!r}')
+    if disposition != TIER_DISPOSITIONS[tier]:
+        raise ValueError(f'{tier}-tier review disposition must be {TIER_DISPOSITIONS[tier]}')
+    for field in ('finding_file', 'title', 'summary'):
+        if _is_placeholder(payload[field]):
+            raise ValueError(f'review field {field} must contain substantive text')
+    for field in ('key_evidence', 'blocking_gaps', 'next_actions'):
+        if any(not isinstance(value, str) for value in payload[field]):
+            raise ValueError(f'review field {field} must contain strings only')
+        if any(_is_placeholder(value) for value in payload[field]):
+            raise ValueError(f'review field {field} contains placeholder text')
+    _validate_structured_object(payload['attacker_control'], 'attacker_control', {'summary': str, 'controlled_inputs': list})
+    _validate_structured_object(payload['reachability'], 'reachability', {'summary': str, 'trigger': str, 'entry_condition': str, 'path_hint': list})
+    _validate_structured_object(payload['candidate_components'], 'candidate_components', {'source': list, 'target': list, 'intermediate': list})
+    if any(not isinstance(item, dict) for item in payload['attacker_control']['controlled_inputs']):
+        raise ValueError('attacker_control.controlled_inputs must contain objects only')
+    _validate_string_array(payload['reachability']['path_hint'], 'reachability.path_hint')
+    for field in ('source', 'target', 'intermediate'):
+        _validate_string_array(payload['candidate_components'][field], f'candidate_components.{field}')
+    _validate_structured_object(
+        payload['confidence_breakdown'],
+        'confidence_breakdown',
+        {'overall': str, 'attacker_control': str, 'reachability': str, 'impact': str, 'notes': str},
+    )
+    for field in ('overall', 'attacker_control', 'reachability', 'impact'):
+        level = payload['confidence_breakdown'][field].strip().lower()
+        if level not in CONFIDENCE_LEVELS:
+            raise ValueError(f'confidence_breakdown.{field} must be high, medium, or low')
+    if payload['confidence_breakdown']['overall'].strip().lower() != confidence:
+        raise ValueError('confidence_breakdown.overall must match confidence')
+    for field in ('entrypoints', 'sinks', 'evidence_locations', 'candidate_boundaries', 'capabilities', 'preconditions', 'affected_assets', 'candidate_policies', 'candidate_invariants', 'exploit_path'):
+        if any(not isinstance(value, dict) for value in payload[field]):
+            raise ValueError(f'review field {field} must contain objects only')
+    for field in ('entrypoints', 'sinks', 'evidence_locations'):
+        _validate_locations(payload[field], field, repo_root)
+
+    if tier in {'S', 'A'}:
+        if _is_placeholder(payload['impact']):
+            raise ValueError(f'{tier}-tier review requires a concrete impact')
+        if _is_placeholder(payload['attacker_control'].get('summary')):
+            raise ValueError(f'{tier}-tier review requires attacker-control evidence')
+        if _is_placeholder(payload['reachability'].get('summary')):
+            raise ValueError(f'{tier}-tier review requires reachability evidence')
+        if not payload['entrypoints'] or not payload['sinks'] or not payload['evidence_locations'] or not payload['key_evidence']:
+            raise ValueError(f'{tier}-tier review requires entrypoints, sinks, evidence locations, and key evidence')
+    return payload
+
+
+def normalize_and_validate_review_record(payload: object, *, repo_root: Path | None = None) -> dict[str, Any]:
+    raw = validate_raw_review_record(payload, repo_root=repo_root)
+    normalized = normalize_review_record(raw)
+    normalized['tier'] = normalized['tier'].upper()
+    normalized['confidence'] = normalized['confidence'].lower()
+    normalized['disposition'] = normalized['disposition'].lower()
+    _validate_normalized_review_invariants(normalized)
+    return normalized
+
+
+def _validate_normalized_review_invariants(item: dict[str, Any]) -> None:
+    tier = str(item.get('tier', '')).upper()
+    if tier not in {'S', 'A'}:
+        return
+    if _is_placeholder(item.get('impact')):
+        raise ValueError(f'{tier}-tier normalized review requires a concrete impact')
+    if _is_placeholder(item.get('attacker_control', {}).get('summary')):
+        raise ValueError(f'{tier}-tier normalized review requires attacker-control evidence')
+    if _is_placeholder(item.get('reachability', {}).get('summary')):
+        raise ValueError(f'{tier}-tier normalized review requires reachability evidence')
+    if not item.get('entrypoints') or not item.get('sinks') or not item.get('evidence_locations') or not item.get('key_evidence'):
+        raise ValueError(f'{tier}-tier normalized review lost required structured evidence')
+
+
+def _validate_structured_object(value: dict, field: str, members: dict[str, type]) -> None:
+    for name, expected_type in members.items():
+        if name not in value or not isinstance(value[name], expected_type):
+            raise ValueError(f'review field {field}.{name} must be {expected_type.__name__}')
+
+
+def _validate_string_array(value: list, field: str) -> None:
+    if any(not isinstance(item, str) for item in value):
+        raise ValueError(f'review field {field} must contain strings only')
+
+
+def _validate_locations(items: list[dict], field: str, repo_root: Path | None) -> None:
+    for index, item in enumerate(items):
+        location = item if field == 'evidence_locations' else item.get('location')
+        if not isinstance(location, dict):
+            raise ValueError(f'{field}[{index}] requires a location object')
+        for member in ('file', 'symbol', 'lines'):
+            if not isinstance(location.get(member), str):
+                raise ValueError(f'{field}[{index}].location.{member} must be a string')
+        file_name = location.get('file')
+        if not isinstance(file_name, str) or _is_placeholder(file_name):
+            raise ValueError(f'{field}[{index}].location.file must be repository-relative')
+        if repo_root is not None and safe_repo_file(repo_root, file_name) is None:
+            raise ValueError(f'{field}[{index}] references a missing or unsafe file: {file_name}')
+
+
+def _is_placeholder(value: object) -> bool:
+    if not isinstance(value, str):
+        return True
+    normalized = value.strip().lower()
+    exact = {
+        '', '-', '*', 'none', 'n/a', 'na', 'unknown', 'tbd', 'todo', '...', 'not applicable',
+        'not provided', 'insufficient evidence', 'no evidence', 'blocked', 'not found', 'unavailable',
+    }
+    prefixes = (
+        'unknown ', 'tbd ', 'todo ', 'not applicable ', 'n/a ', 'not provided ',
+        'insufficient evidence ', 'no evidence ', 'blocked ', 'not found ', 'unavailable ',
+    )
+    return normalized in exact or normalized.startswith(prefixes)
 
 
 def normalize_review_record(payload: dict[str, Any]) -> dict[str, Any]:
@@ -345,7 +511,7 @@ def _normalize_confidence_breakdown(value: Any) -> dict[str, Any]:
 
 
 _FILE_LOC_RE = re.compile(
-    r"((?:[A-Za-z0-9_@.-]+/)+[A-Za-z0-9_@.-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|c|cc|cpp|h|hpp))(?:[:](\d+(?:-\d+)?))?"
+    r"((?:[A-Za-z0-9_@.-]+/)*[A-Za-z0-9_@.-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|c|cc|cpp|h|hpp))(?:[:](\d+(?:-\d+)?))?"
 )
 _SYMBOL_RE = re.compile(r"`([A-Za-z_][A-Za-z0-9_.$-]*)\(\)`|`([A-Za-z_][A-Za-z0-9_.$-]*)`")
 
@@ -602,7 +768,13 @@ def _dedupe_strings(values: list[str]) -> list[str]:
 
 def _is_valid_repo_file_hint(value: str) -> bool:
     text = str(value or "").strip()
-    return "/" in text and bool(_FILE_LOC_RE.fullmatch(text))
+    if not _FILE_LOC_RE.fullmatch(text):
+        return False
+    try:
+        safe_output_relative(text)
+    except ValueError:
+        return False
+    return True
 
 
 def _normalize_repo_file_hint(value: str) -> str:

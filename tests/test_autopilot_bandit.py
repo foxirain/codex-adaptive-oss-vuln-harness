@@ -8,16 +8,21 @@ from oss_harness.autopilot import (
     _next_pending_rank,
     _record_bandit_outcome,
     _render_next_prompt,
+    _register_pending_failure,
     _subsystem_priority_score,
     _target_subsystem,
 )
-from oss_harness.session import load_state, save_state
+from oss_harness.session import load_state, record_review, save_state
 
 
 class AutopilotBanditTests(unittest.TestCase):
     def test_target_subsystem_uses_deeper_packages_path(self) -> None:
         subsystem = _target_subsystem('packages/gui/src/electron/CacheManager.ts::prepareProtocol', {})
         self.assertEqual(subsystem, 'packages/gui/src/electron')
+
+    def test_target_subsystem_never_uses_root_filename_as_bucket(self) -> None:
+        self.assertEqual(_target_subsystem('Makefile', {}), '<root>')
+        self.assertEqual(_target_subsystem('main.py', {}), '<root>')
 
     def test_strong_reward_can_outweigh_base_rank(self) -> None:
         manifest = {
@@ -56,7 +61,7 @@ class AutopilotBanditTests(unittest.TestCase):
                 },
             )
         gui_score = _subsystem_priority_score(state, 'packages/gui/src/electron')
-        api_score = _subsystem_priority_score(state, 'src/api/old.ts')
+        api_score = _subsystem_priority_score(state, 'src/api')
         self.assertGreater(gui_score, api_score)
 
     def test_timeout_penalty_pushes_target_down(self) -> None:
@@ -145,6 +150,63 @@ class AutopilotBanditTests(unittest.TestCase):
 
 
 class SessionBanditStateTests(unittest.TestCase):
+    def test_success_after_two_operational_failures_clears_retry_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_dir = Path(tmpdir)
+            save_state(
+                session_dir,
+                {
+                    'current_rank': 1,
+                    'history': [],
+                    'pending_rank': 1,
+                    'pending_target': 'src/a.py',
+                    'bandit': {'global_step': 0, 'subsystems': {}, 'targets': {}},
+                },
+            )
+            _register_pending_failure(session_dir, 'timeout', 'timed out')
+            _register_pending_failure(session_dir, 'parse_error', 'invalid response')
+            record_review(
+                session_dir,
+                rank=1,
+                target='src/a.py',
+                verdict='discarding',
+                notes='valid response',
+                next_target='',
+                next_prompt='',
+                auto_advance=True,
+            )
+            state = load_state(session_dir)
+
+        self.assertEqual(len(state['history']), 1)
+        self.assertEqual(state['history'][0]['verdict'], 'discarding')
+        self.assertEqual(state['pending_retry_count'], 0)
+        self.assertEqual(state['pending_failures'], [])
+        self.assertEqual(state['bandit']['global_step'], 0)
+
+    def test_operational_retries_do_not_complete_or_reward_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_dir = Path(tmpdir)
+            save_state(
+                session_dir,
+                {
+                    'current_rank': 1,
+                    'history': [],
+                    'pending_rank': 1,
+                    'pending_target': 'src/a.py',
+                    'bandit': {'global_step': 0, 'subsystems': {}, 'targets': {}},
+                },
+            )
+            first = _register_pending_failure(session_dir, 'timeout', 'timed out')
+            second = _register_pending_failure(session_dir, 'parse_error', 'invalid response')
+            third = _register_pending_failure(session_dir, 'timeout', 'timed out again')
+            state = load_state(session_dir)
+
+        self.assertFalse(first['retry_exhausted'])
+        self.assertFalse(second['retry_exhausted'])
+        self.assertTrue(third['retry_exhausted'])
+        self.assertEqual(state['history'], [])
+        self.assertEqual(state['bandit']['global_step'], 0)
+        self.assertEqual(state['pending_target'], 'src/a.py')
     def test_session_state_preserves_bandit_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             session_dir = Path(tmpdir)

@@ -56,6 +56,7 @@ def parse_response(text: str) -> dict:
 
 def _extract_verdict(text: str) -> str:
     lines = text.splitlines()
+    verdicts: list[str] = []
     for pattern in VERDICT_PATTERNS:
         for index, line in enumerate(lines):
             match = pattern.search(line)
@@ -65,17 +66,17 @@ def _extract_verdict(text: str) -> str:
             if not value and index + 1 < len(lines):
                 value = _extract_bullet_value(lines[index + 1])
             mapped = _map_verdict(value)
-            if mapped:
-                return mapped
-    lowered = text.lower()
-    for needle, mapped in VERDICT_RULES:
-        if re.search(rf'(?<![a-z_]){re.escape(needle)}(?![a-z_])', lowered):
-            return mapped
-    raise ValueError('could not extract verdict from Codex response')
+            if not mapped:
+                raise ValueError(f'invalid strict verdict: {value!r}')
+            verdicts.append(mapped)
+    if len(verdicts) != 1:
+        raise ValueError(f'expected exactly one strict verdict, found {len(verdicts)}')
+    return verdicts[0]
 
 
 def _extract_next_target(text: str) -> str:
     lines = text.splitlines()
+    values: list[str] = []
     for pattern in NEXT_PATTERNS:
         for index, line in enumerate(lines):
             match = pattern.search(line)
@@ -84,9 +85,12 @@ def _extract_next_target(text: str) -> str:
             value = _normalize_inline_value(match.group('value'))
             if not value and index + 1 < len(lines):
                 value = _extract_bullet_value(lines[index + 1])
-            if value and value.lower() not in {'none', 'n/a', 'na', '없음'}:
-                return value
-    return ''
+            values.append(value)
+    if len(values) > 1:
+        raise ValueError(f'expected at most one next target, found {len(values)}')
+    if not values or values[0].lower() in {'none', 'n/a', 'na', '없음'}:
+        return ''
+    return values[0]
 
 
 def _extract_notes(text: str, limit: int = 320) -> str:

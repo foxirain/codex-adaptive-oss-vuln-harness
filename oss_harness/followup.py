@@ -3,13 +3,17 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from oss_harness.paths import normalize_repo_target, safe_repo_file
+
 
 def render_followup_snippet(repo_root: Path, target: str, *, radius: int = 4, body_lines: int = 28) -> str:
-    rel_path, symbol = _split_target(target)
-    if not rel_path:
+    try:
+        normalized = normalize_repo_target(repo_root, target)
+    except ValueError:
         return ''
-    source_path = repo_root / rel_path
-    if not source_path.exists() or not source_path.is_file():
+    rel_path, symbol = _split_target(normalized)
+    source_path = safe_repo_file(repo_root, rel_path)
+    if source_path is None:
         return ''
     try:
         lines = source_path.read_text(encoding='utf-8', errors='ignore').splitlines()

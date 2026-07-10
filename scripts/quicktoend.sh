@@ -25,7 +25,8 @@ Options:
   --tier-min TIER          Minimum review tier for repro/report. Default: A
   --model MODEL            Optional Codex model override
   --reasoning-effort EFFORT Optional Codex reasoning effort override: low, medium, high, or xhigh
-  --sandbox MODE           Codex sandbox mode. Default: workspace-write
+  --sandbox MODE           Codex sandbox mode. Default: read-only
+  --full-auto              Explicitly enable Codex full-auto; requires a writable sandbox
   --no-include-snippet     Do not pass --include-snippet to autopilot
   --unsafe-bypass          Pass --dangerously-bypass-approvals-and-sandbox
   -h, --help               Show help
@@ -52,9 +53,10 @@ REPORT_TIMEOUT="20m"
 TIER_MIN="A"
 MODEL=""
 REASONING_EFFORT=""
-SANDBOX="workspace-write"
+SANDBOX="read-only"
 INCLUDE_SNIPPET=1
 UNSAFE_BYPASS=0
+FULL_AUTO=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -106,6 +108,10 @@ while [[ $# -gt 0 ]]; do
       SANDBOX="$2"
       shift 2
       ;;
+    --full-auto)
+      FULL_AUTO=1
+      shift
+      ;;
     --no-include-snippet)
       INCLUDE_SNIPPET=0
       shift
@@ -138,6 +144,10 @@ if [[ -z "$TEMPLATE" ]]; then
   printf 'missing required --template\n' >&2
   exit 1
 fi
+if [[ "$FULL_AUTO" -eq 1 && "$SANDBOX" == "read-only" ]]; then
+  printf '%s\n' '--full-auto requires --sandbox workspace-write or danger-full-access' >&2
+  exit 1
+fi
 
 REPO_PATH="$(cd "$REPO_PATH" && pwd)"
 HARNESS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -153,6 +163,9 @@ if [[ -n "$REASONING_EFFORT" ]]; then
   COMMON_ARGS+=(--reasoning-effort "$REASONING_EFFORT")
 fi
 COMMON_ARGS+=(--sandbox "$SANDBOX")
+if [[ "$FULL_AUTO" -eq 1 ]]; then
+  COMMON_ARGS+=(--full-auto)
+fi
 if [[ "$UNSAFE_BYPASS" -eq 1 ]]; then
   COMMON_ARGS+=(--dangerously-bypass-approvals-and-sandbox)
 fi

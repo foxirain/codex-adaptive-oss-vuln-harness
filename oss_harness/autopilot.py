@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import re
 import subprocess
 import threading
 import time
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from oss_harness.bundle import ensure_prompt_bundle
 from oss_harness.followup import render_followup_snippet
 from oss_harness.ingest import parse_response
+from oss_harness.paths import normalize_repo_target, safe_repo_relative
 from oss_harness.session import (
     completed_ranks,
     load_state,
@@ -22,9 +24,9 @@ from oss_harness.session import (
     set_pending_review,
 )
 
-PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 MAX_MANUAL_FOLLOWUPS = 3
 MAX_SAME_TARGET_ATTEMPTS = 3
+MAX_OPERATION_ATTEMPTS = 3
 STRONG_FINDING_VERDICTS = {'cve_candidate', 'plausible_security_bug', 'latent_bug'}
 AUTOPILOT_DIRNAME = 'autopilot'
 WATCHDOG_INTERVAL_SECONDS = 300
@@ -145,6 +147,9 @@ def run_autopilot(
                 completed=len(state.get('history', [])),
                 bandit_step=state.get('bandit', {}).get('global_step', 0),
             )
+            if result.get('retry_exhausted'):
+                _append_text(progress_path, f"stop_reason={result['verdict']}_retry_exhausted\n")
+                return 2
             if stop_on_finding and result['verdict'] in STRONG_FINDING_VERDICTS:
                 _append_text(progress_path, 'stop_reason=strong_finding_detected\n')
                 _trace_event(trace_path, 'stop', reason='strong_finding_detected', target=result['target'], verdict=result['verdict'])
@@ -243,7 +248,11 @@ def run_autopilot(
             timeout_seconds=timeout_seconds,
         )
         _append_text(progress_path, f'codex_exit_code={proc.returncode}\nstdout_file={stdout_path}\nstderr_file={stderr_path}\n')
-        if proc.returncode != 0 and not _has_nonempty_response(response_path(session_dir)):
+        if proc.returncode != 0:
+            rejected_response = response_path(session_dir)
+            if _has_nonempty_response(rejected_response):
+                archive = _archive_response_file(session_dir, rejected_response)
+                _append_text(progress_path, f'rejected_nonzero_response={archive}\n')
             failure = _classify_exec_failure(_read_text_file(stderr_path), proc.returncode)
             if failure['kind'] == 'timeout':
                 timeout_result = _record_timeout_result(
@@ -254,7 +263,6 @@ def run_autopilot(
                     progress_path,
                     trace_path=trace_path,
                 )
-                _write_bandit_artifacts(session_dir)
                 _write_status(
                     status_path,
                     stage='timeout_recovered',
@@ -268,6 +276,9 @@ def run_autopilot(
                     completed=len(load_state(session_dir).get('history', [])),
                     bandit_step=load_state(session_dir).get('bandit', {}).get('global_step', 0),
                 )
+                if timeout_result.get('retry_exhausted'):
+                    _append_text(progress_path, 'stop_reason=timeout_retry_exhausted\n')
+                    return 124
                 continue
 
             stop_stage = failure['kind']
@@ -318,6 +329,26 @@ def run_autopilot(
     )
     _trace_event(trace_path, 'final_ingest_cycle', duration_ms=_duration_ms(final_ingest_started))
     _write_bandit_artifacts(session_dir)
+    final_state = load_state(session_dir)
+    pending_failures = list(final_state.get('pending_failures', []))
+    if final_state.get('pending_target') and int(final_state.get('pending_retry_count', 0) or 0) > 0:
+        last_kind = str(pending_failures[-1].get('kind', 'operational_failure')) if pending_failures else 'operational_failure'
+        _write_status(
+            status_path,
+            stage='retry_pending',
+            stop_reason=last_kind,
+            session_dir=session_dir,
+            repo_root=manifest.get('repo_root', ''),
+            started_at=started_at,
+            duration_spec=duration_spec,
+            runs=run_index,
+            pending_target=final_state.get('pending_target', ''),
+            pending_rank=final_state.get('pending_rank'),
+            retry_count=final_state.get('pending_retry_count', 0),
+            bandit_step=final_state.get('bandit', {}).get('global_step', 0),
+        )
+        _append_text(progress_path, f'== AUTOPILOT END retry_pending={last_kind} ==\n')
+        return 124 if last_kind == 'timeout' else 2
     _write_status(
         status_path,
         stage='finished',
@@ -350,7 +381,11 @@ def _run_codex_exec(
     watchdog_target: str,
     watchdog_rank: int | None,
 ) -> subprocess.CompletedProcess[str]:
-    cmd = ['codex', 'exec', '-C', repo_root, '--skip-git-repo-check', '--add-dir', str(PACKAGE_ROOT), '-o', str(response_file), '--color', 'never']
+    if full_auto and sandbox == 'read-only':
+        raise ValueError('full_auto cannot be combined with read-only sandboxing')
+    response_file.parent.mkdir(parents=True, exist_ok=True)
+    response_file.write_text('', encoding='utf-8')
+    cmd = ['codex', 'exec', '-C', repo_root, '--skip-git-repo-check', '-o', str(response_file), '--color', 'never']
     if unsafe_bypass:
         cmd.append('--dangerously-bypass-approvals-and-sandbox')
     else:
@@ -369,14 +404,18 @@ def _run_codex_exec(
 
     started = time.monotonic()
     next_watchdog = WATCHDOG_INTERVAL_SECONDS
-    proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        cwd=str(PACKAGE_ROOT),
-    )
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=repo_root,
+        )
+    except OSError as exc:
+        stderr_path.write_text(f'EXEC_ERROR: {exc}\n', encoding='utf-8')
+        return subprocess.CompletedProcess(cmd, 127, '', str(exc))
     if proc.stdin is not None:
         proc.stdin.write(prompt_text)
         proc.stdin.close()
@@ -449,46 +488,33 @@ def _ingest_pending_response(
     runtime_ms = int(state.get('pending_runtime_ms', 0) or 0)
     try:
         parsed = parse_response(text)
+        next_target = (
+            _normalize_target_reference(parsed['next_target'], Path(manifest['repo_root']))
+            if parsed['should_continue']
+            else ''
+        )
     except ValueError as exc:
         archive_path = _archive_response_file(session_dir, fixed_response)
-        updated_state = record_review(
-            session_dir=session_dir,
-            rank=state.get('pending_rank'),
-            target=pending_target,
-            verdict='needs_more_context',
-            notes=f'parse_error: {exc}',
-            next_target='',
-            next_prompt='',
-            auto_advance=True,
-        )
-        summary = _record_bandit_outcome(
-            updated_state,
-            manifest,
-            {
-                'target': pending_target,
-                'rank': state.get('pending_rank'),
-                'verdict': 'needs_more_context',
-                'notes': f'parse_error: {exc}',
-                'accepted_next_target': '',
-                'runtime_ms': runtime_ms,
-            },
-            trace_path=trace_path,
-        )
-        save_state(session_dir, updated_state)
-        _append_text(progress_path, f'ingested_target={pending_target}\ningested_verdict=needs_more_context\nresponse_archive={archive_path}\n')
+        retry = _register_pending_failure(session_dir, 'parse_error', str(exc))
+        _append_text(progress_path, f'ingest_parse_error_target={pending_target}\nretry_count={retry["retry_count"]}\nresponse_archive={archive_path}\n')
         _trace_event(
             trace_path,
             'ingest_parse_error',
             target=pending_target,
             rank=state.get('pending_rank'),
-            fallback_verdict='needs_more_context',
             archive=str(archive_path),
             error=str(exc),
-            reward=summary['immediate_reward'],
+            retry_count=retry['retry_count'],
+            retry_exhausted=int(retry['retry_exhausted']),
         )
-        return {'target': pending_target, 'rank': state.get('pending_rank'), 'verdict': 'needs_more_context', 'next_target': ''}
+        return {
+            'target': pending_target,
+            'rank': state.get('pending_rank'),
+            'verdict': 'parse_error',
+            'next_target': '',
+            **retry,
+        }
 
-    next_target = _normalize_target_reference(parsed['next_target']) if parsed['should_continue'] else ''
     current_attempts = _target_attempts(state, pending_target)
     if next_target and int(state.get('manual_followup_depth', 0)) >= MAX_MANUAL_FOLLOWUPS:
         _trace_event(trace_path, 'drop_next_target', pending_target=pending_target, proposed_next=next_target, reason='manual_followup_limit', depth=int(state.get('manual_followup_depth', 0)))
@@ -544,6 +570,23 @@ def _ingest_pending_response(
     if parsed['verdict'] in STRONG_FINDING_VERDICTS:
         finding_path = findings_dir / f"finding-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}.txt"
         finding_path.write_text(text, encoding='utf-8')
+        finding_path.with_suffix('.json').write_text(
+            json.dumps(
+                {
+                    'schema_version': 1,
+                    'finding_file': finding_path.name,
+                    'target': pending_target,
+                    'rank': state.get('pending_rank'),
+                    'verdict': parsed['verdict'],
+                    'next_target': next_target,
+                    'response_archive': str(archive_path),
+                    'content_sha256': hashlib.sha256(text.encode('utf-8')).hexdigest(),
+                    'recorded_at': datetime.now(UTC).isoformat(),
+                },
+                indent=2,
+            ),
+            encoding='utf-8',
+        )
         _append_text(findings_path, f"\n== FINDING {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%SZ')} ==\ntarget={pending_target}\nverdict={parsed['verdict']}\ndetails={finding_path}\narchive={archive_path}\n")
         _trace_event(trace_path, 'finding_saved', target=pending_target, verdict=parsed['verdict'], finding=str(finding_path))
     return {'target': pending_target, 'rank': state.get('pending_rank'), 'verdict': parsed['verdict'], 'next_target': next_target}
@@ -597,33 +640,25 @@ def _record_timeout_result(
 ) -> dict:
     target = rendered['target']
     rank = rendered['rank']
-    updated_state = record_review(
-        session_dir=session_dir,
-        rank=rank,
-        target=target,
-        verdict='timeout',
-        notes='autopilot_timeout: codex exec exited without response',
-        next_target='',
-        next_prompt='',
-        auto_advance=True,
-    )
-    summary = _record_bandit_outcome(
-        updated_state,
-        manifest,
-        {
-            'target': target,
-            'rank': rank,
-            'verdict': 'timeout',
-            'notes': 'autopilot_timeout: codex exec exited without response',
-            'accepted_next_target': '',
-            'runtime_ms': runtime_ms,
-        },
-        trace_path=trace_path,
-    )
-    save_state(session_dir, updated_state)
-    _append_text(progress_path, f'timeout_target={target}\ntimeout_runtime_ms={runtime_ms}\ntimeout_recovered=1\n')
-    _trace_event(trace_path, 'timeout_recovered', target=target, rank=rank, runtime_ms=runtime_ms, reward=summary['immediate_reward'])
-    return {'target': target, 'rank': rank, 'verdict': 'timeout', 'next_target': ''}
+    retry = _register_pending_failure(session_dir, 'timeout', 'codex exec timed out before producing a valid response')
+    _append_text(progress_path, f'timeout_target={target}\ntimeout_runtime_ms={runtime_ms}\nretry_count={retry["retry_count"]}\n')
+    _trace_event(trace_path, 'timeout_retry', target=target, rank=rank, runtime_ms=runtime_ms, retry_count=retry['retry_count'], retry_exhausted=int(retry['retry_exhausted']))
+    return {'target': target, 'rank': rank, 'verdict': 'timeout', 'next_target': '', **retry}
+
+
+def _register_pending_failure(session_dir: Path, kind: str, detail: str) -> dict[str, object]:
+    state = load_state(session_dir)
+    retry_count = int(state.get('pending_retry_count', 0) or 0) + 1
+    state['pending_retry_count'] = retry_count
+    failures = list(state.get('pending_failures', []))
+    failures.append({'kind': kind, 'detail': detail[:320], 'retry': retry_count})
+    state['pending_failures'] = failures[-MAX_OPERATION_ATTEMPTS:]
+    save_state(session_dir, state)
+    return {
+        'retryable_failure': True,
+        'retry_count': retry_count,
+        'retry_exhausted': retry_count >= MAX_OPERATION_ATTEMPTS,
+    }
 
 
 def _archive_response_file(session_dir: Path, fixed_response: Path) -> Path:
@@ -643,7 +678,13 @@ def _render_next_prompt(session_dir: Path, *, include_snippet: bool, trace_path:
     if resumed is not None:
         return resumed
 
-    manual_target = _normalize_target_reference(state.get('manual_next_target', ''))
+    try:
+        manual_target = _normalize_target_reference(state.get('manual_next_target', ''), Path(manifest['repo_root']))
+    except ValueError:
+        manual_target = ''
+        state['manual_next_target'] = ''
+        state['manual_next_prompt'] = ''
+        save_state(session_dir, state)
     manual_prompt = (state.get('manual_next_prompt') or '').strip()
     depth = int(state.get('manual_followup_depth', 0))
     if manual_target and depth >= MAX_MANUAL_FOLLOWUPS:
@@ -720,16 +761,21 @@ def _resume_pending_prompt(
     include_snippet: bool,
     trace_path: Path | None = None,
 ) -> dict | None:
-    pending_target = _normalize_target_reference(state.get('pending_target', ''))
+    try:
+        pending_target = _normalize_target_reference(state.get('pending_target', ''), Path(manifest['repo_root']))
+    except ValueError:
+        return None
     if not pending_target:
         return None
-    pending_response = Path(state.get('pending_response_file') or response_path(session_dir))
+    pending_response = response_path(session_dir)
     if _has_nonempty_response(pending_response):
         return None
 
     pending_rank = state.get('pending_rank')
     pending_source_text = (state.get('pending_prompt_source') or '').strip()
     prompt_source = Path(pending_source_text) if pending_source_text else None
+    if prompt_source is not None and safe_repo_relative(session_dir, prompt_source) is None:
+        prompt_source = None
 
     if pending_rank is None:
         manual_prompt = (state.get('manual_next_prompt') or '').strip()
@@ -784,7 +830,7 @@ def _build_autopilot_prompt(rendered: dict) -> str:
             'Single best next target:',
             '- output exactly ONE target only',
             '- format must be exactly `<file>` or `<file>::<symbol>`',
-            '- do NOT list alternatives, siblings, multiple symbols, explanations, commas, `and`, `/`, or backticks',
+            '- do NOT list alternatives, siblings, multiple symbols, explanations, commas, `and`, or backticks; `/` is allowed only as the repository path separator',
             '- if several nearby symbols seem relevant, choose the single best one and mention the others only in Summary',
             '- use `none` if this branch should stop and the harness should move to the next ranked target',
             '',
@@ -1108,18 +1154,19 @@ def _target_subsystem(target: str, candidate_map: dict[str, dict]) -> str:
     path = _target_source_path(target)
     if not path:
         return ''
-    parts = [part for part in path.split('/') if part]
-    if not parts:
-        return ''
-    if parts[0] == 'packages' and len(parts) >= 4 and parts[2] == 'src':
-        return '/'.join(parts[:4])
-    if parts[0] == 'packages' and len(parts) >= 2:
-        return '/'.join(parts[:2])
-    if parts[0] == 'src' and len(parts) >= 3:
-        return '/'.join(parts[:3])
-    if parts[0] == 'crates' and len(parts) >= 3:
-        return '/'.join(parts[:3])
-    return '/'.join(parts[: min(3, len(parts))])
+    parent = PurePosixPath(path).parent
+    if str(parent) == '.':
+        return '<root>'
+    directory_parts = list(parent.parts)
+    if directory_parts[0] == 'packages' and len(directory_parts) >= 4 and directory_parts[2] == 'src':
+        return '/'.join(directory_parts[:4])
+    if directory_parts[0] == 'packages' and len(directory_parts) >= 2:
+        return '/'.join(directory_parts[:2])
+    if directory_parts[0] == 'src' and len(directory_parts) >= 2:
+        return '/'.join(directory_parts[:2])
+    if directory_parts[0] == 'crates' and len(directory_parts) >= 2:
+        return '/'.join(directory_parts[:2])
+    return '/'.join(directory_parts[: min(3, len(directory_parts))])
 
 
 def _target_source_path(target: str) -> str:
@@ -1133,13 +1180,15 @@ def _target_source_path(target: str) -> str:
     return text
 
 
-def _normalize_target_reference(target: str) -> str:
+def _normalize_target_reference(target: str, repo_root: Path | None = None) -> str:
     text = str(target or '').strip()
     if not text:
         return ''
     lowered = text.lower().strip('` ')
     if lowered in {'none', 'n/a', 'na', '(none)'}:
         return ''
+    if repo_root is not None and ('\n' in text or '\r' in text or '\x00' in text):
+        raise ValueError('target must contain exactly one repository-relative path')
     for line in text.splitlines():
         candidate = line.strip()
         if candidate:
@@ -1159,7 +1208,10 @@ def _normalize_target_reference(target: str) -> str:
     match = re.match(r'^(.*\.[A-Za-z0-9_+-]+):([A-Za-z_][A-Za-z0-9_.$-]*)$', text)
     if match:
         text = f"{match.group(1)}::{match.group(2)}"
-    return text.strip().strip('`')
+    normalized = text.strip().strip('`')
+    if repo_root is not None and normalized:
+        return normalize_repo_target(repo_root, normalized)
+    return normalized
 
 
 def _target_attempts(state: dict, target: str) -> int:

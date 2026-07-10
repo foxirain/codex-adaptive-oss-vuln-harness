@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Shell syntax
+        run: bash -n scripts/quicksearch.sh scripts/quicktoend.sh scripts/quicksearchmax.sh
+      - name: Reject embedded Git backups
+        run: |
+          if git ls-files | grep -q '^\.git_backup/'; then
+            echo 'tracked .git_backup content is forbidden' >&2
+            exit 1
+          fi
+      - name: Build wheel
+        run: python -m pip wheel . --no-deps -w "$RUNNER_TEMP/wheels"
+      - name: Installed wheel smoke test outside checkout
+        run: |
+          python -m venv "$RUNNER_TEMP/smoke-venv"
+          "$RUNNER_TEMP/smoke-venv/bin/python" -m pip install "$RUNNER_TEMP"/wheels/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/smoke-venv/bin/adaptive-oss-harness" --help
+          "$RUNNER_TEMP/smoke-venv/bin/python" -c 'import oss_harness; assert oss_harness.__version__ == "0.3.0"'

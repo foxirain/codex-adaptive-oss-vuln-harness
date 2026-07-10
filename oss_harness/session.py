@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 STATE_FILENAME = 'review_state.json'
@@ -69,6 +71,16 @@ def _normalize_state(session_dir: Path, state: dict) -> dict:
         'pending_response_file': state.get('pending_response_file') or str(response_path(session_dir)),
         'pending_subsystem': state.get('pending_subsystem', '') or '',
         'pending_runtime_ms': int(state.get('pending_runtime_ms', 0) or 0),
+        'pending_retry_count': int(state.get('pending_retry_count', 0) or 0),
+        'pending_failures': [
+            {
+                'kind': str(item.get('kind', '') or ''),
+                'detail': str(item.get('detail', '') or ''),
+                'retry': int(item.get('retry', 0) or 0),
+            }
+            for item in state.get('pending_failures', [])
+            if isinstance(item, dict)
+        ],
         'dynamic_tail_shortlist': [int(value) for value in state.get('dynamic_tail_shortlist', []) if int(value or 0) > 0],
         'bandit': _normalize_bandit_state(state.get('bandit')),
     }
@@ -97,17 +109,35 @@ def load_state(session_dir: Path) -> dict:
 
 
 def save_state(session_dir: Path, state: dict) -> None:
-    state_path(session_dir).write_text(json.dumps(_normalize_state(session_dir, state), indent=2), encoding='utf-8')
+    destination = state_path(session_dir)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(_normalize_state(session_dir, state), indent=2)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f'.{destination.name}.', suffix='.tmp', dir=destination.parent)
+    try:
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, destination)
+    finally:
+        try:
+            Path(temporary_name).unlink()
+        except FileNotFoundError:
+            pass
 
 
 def set_pending_review(session_dir: Path, rank: int | None, target: str, prompt_source: str) -> dict:
     state = load_state(session_dir)
+    is_new_target = state.get('pending_rank') != rank or state.get('pending_target') != target
     state['pending_rank'] = rank
     state['pending_target'] = target
     state['pending_prompt_source'] = prompt_source
     state['pending_response_file'] = str(response_path(session_dir))
     state['pending_subsystem'] = ''
     state['pending_runtime_ms'] = 0
+    if is_new_target:
+        state['pending_retry_count'] = 0
+        state['pending_failures'] = []
     save_state(session_dir, state)
     return state
 
@@ -154,6 +184,8 @@ def record_review(
     state['pending_response_file'] = str(response_path(session_dir))
     state['pending_subsystem'] = ''
     state['pending_runtime_ms'] = 0
+    state['pending_retry_count'] = 0
+    state['pending_failures'] = []
     save_state(session_dir, state)
     return state
 

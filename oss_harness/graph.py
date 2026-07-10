@@ -4,6 +4,8 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from oss_harness.paths import safe_repo_file
+
 IMPORT_PATTERNS = {
     "python": [
         re.compile(r"^\s*import\s+([a-zA-Z0-9_\.]+)", re.MULTILINE),
@@ -42,7 +44,9 @@ def build_import_graph(repo_root: Path, language_map: dict[str, str], max_files:
 
     for rel_path in files:
         language = language_map[rel_path]
-        file_path = repo_root / rel_path
+        file_path = safe_repo_file(repo_root, rel_path)
+        if file_path is None:
+            continue
         try:
             text = file_path.read_text(encoding="utf-8", errors="ignore")
         except OSError:

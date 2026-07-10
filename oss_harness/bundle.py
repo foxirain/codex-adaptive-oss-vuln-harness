@@ -5,6 +5,7 @@ from pathlib import Path
 
 from oss_harness.models import Candidate, ExternalSignal, LanguageStat, Signal, SymbolHint
 from oss_harness.policy import render_policy_summary
+from oss_harness.paths import safe_repo_file, safe_repo_relative
 from oss_harness.prompting import render_bundle_prompt
 from oss_harness.session import initialize_state
 
@@ -47,13 +48,16 @@ def write_session_bundle(repo_root: Path, out_dir: Path, candidates: list[Candid
     session_lines.extend(['', '## Policy Summary', '', render_policy_summary(policy) or '- no explicit policy file', '', '## Priority Targets', ''])
 
     for rank, candidate in enumerate(candidates[:top_n], start=1):
-        rel_path = candidate.path.relative_to(repo_root)
+        rel_text = safe_repo_relative(repo_root, candidate.path)
+        if rel_text is None:
+            continue
+        rel_path = Path(rel_text)
         slug = f"{rank:02d}-{str(rel_path).replace('/', '__')}.md"
         prompt_path = bundle_dir / slug
         prompt_path.write_text(render_bundle_prompt(repo_root, candidate, policy), encoding='utf-8')
 
         snippet_path = bundle_dir / slug.replace('.md', '.snippet.txt')
-        snippet_path.write_text(_extract_snippet(candidate), encoding='utf-8')
+        snippet_path.write_text(_extract_snippet(repo_root, candidate), encoding='utf-8')
 
         surfaces = ', '.join(candidate.attack_surfaces[:3]) or 'none'
         sinks = ', '.join(candidate.sink_kinds[:3]) or 'none'
@@ -64,9 +68,9 @@ def write_session_bundle(repo_root: Path, out_dir: Path, candidates: list[Candid
 
     session_lines.extend([
         '', '## Codex Usage Pattern', '',
-        '1. Start with the highest-score prompt file in `bundles/` or use `oss-harness next <session_dir>`.',
+        '1. Start with the highest-score prompt file in `bundles/` or use `adaptive-oss-harness next <session_dir>`.',
         '2. Keep Codex on one branch at a time: entrypoint, trust boundary, sink, invariant, impact.',
-        '3. Record verdicts with `oss-harness record ...` or let `oss-harness autopilot ...` ingest them automatically.',
+        '3. Record verdicts with `adaptive-oss-harness record ...` or let `adaptive-oss-harness autopilot ...` ingest them automatically.',
         '4. Save confirmed issues into copies of `finding_template.json`.',
     ])
 
@@ -99,13 +103,16 @@ def ensure_prompt_bundle(session_dir: Path, manifest: dict, rank: int) -> tuple[
         ),
         encoding='utf-8',
     )
-    snippet_path.write_text(_extract_snippet(candidate), encoding='utf-8')
+    snippet_path.write_text(_extract_snippet(repo_root, candidate), encoding='utf-8')
     return prompt_path, snippet_path
 
 
 def _candidate_from_manifest(repo_root: Path, payload: dict) -> Candidate:
+    candidate_path = safe_repo_file(repo_root, str(payload.get('path', '')))
+    if candidate_path is None:
+        raise SystemExit(f"unsafe or missing candidate path: {payload.get('path', '')}")
     return Candidate(
-        path=repo_root / str(payload.get('path', '')),
+        path=candidate_path,
         language=str(payload.get('language', '') or ''),
         subsystem=str(payload.get('subsystem', '') or ''),
         exposure=str(payload.get('exposure', '') or ''),
@@ -158,9 +165,15 @@ def _bundle_paths(session_dir: Path, rank: int, rel_path: str) -> tuple[Path, Pa
     return bundle_dir / f'{prefix}.md', bundle_dir / f'{prefix}.snippet.txt'
 
 
-def _extract_snippet(candidate: Candidate, radius: int = 4) -> str:
+def _extract_snippet(repo_root: Path, candidate: Candidate, radius: int = 4) -> str:
+    rel_path = safe_repo_relative(repo_root, candidate.path)
+    if rel_path is None:
+        return ''
+    safe_path = safe_repo_file(repo_root, rel_path)
+    if safe_path is None:
+        return ''
     try:
-        lines = candidate.path.read_text(encoding='utf-8', errors='ignore').splitlines()
+        lines = safe_path.read_text(encoding='utf-8', errors='ignore').splitlines()
     except OSError:
         return ''
     seen: set[tuple[int, int]] = set()

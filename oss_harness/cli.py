@@ -15,6 +15,7 @@ from oss_harness.findings import filter_finding_files_by_verdict, list_finding_f
 from oss_harness.followup import render_followup_snippet
 from oss_harness.ingest import load_response, parse_response
 from oss_harness.policy import find_default_policy, load_policy, write_policy_template
+from oss_harness.paths import normalize_repo_target
 from oss_harness.reporting import run_report
 from oss_harness.repro import run_repro
 from oss_harness.reviewing import TIER_ORDER, run_review
@@ -32,7 +33,7 @@ CODEX_REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh']
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog='oss-harness', description='Prepare reusable vulnerability-hunting sessions for Codex across general OSS projects.')
+    parser = argparse.ArgumentParser(prog='adaptive-oss-harness', description='Prepare adaptive vulnerability-hunting sessions for Codex across general OSS projects.')
     subparsers = parser.add_subparsers(dest='command', required=True)
 
     policy_parser = subparsers.add_parser('init-policy', help='Write a starter Markdown policy file.')
@@ -127,8 +128,8 @@ def build_parser() -> argparse.ArgumentParser:
     autopilot_parser.add_argument('--include-snippet', action='store_true', help='Append generated code snippets to prompts.')
     autopilot_parser.add_argument('--model', default='', help='Optional Codex model override.')
     autopilot_parser.add_argument('--reasoning-effort', choices=CODEX_REASONING_EFFORTS, default='', help='Optional Codex reasoning effort override.')
-    autopilot_parser.add_argument('--sandbox', choices=['read-only', 'workspace-write', 'danger-full-access'], default='workspace-write', help='Sandbox mode for codex exec when not bypassing safeguards.')
-    autopilot_parser.add_argument('--no-full-auto', action='store_true', help='Do not pass --full-auto to codex exec.')
+    autopilot_parser.add_argument('--sandbox', choices=['read-only', 'workspace-write', 'danger-full-access'], default='read-only', help='Sandbox mode for codex exec. Defaults to read-only.')
+    autopilot_parser.add_argument('--full-auto', action='store_true', help='Explicitly enable Codex full-auto mode. Cannot be combined with read-only sandboxing.')
     autopilot_parser.add_argument('--dangerously-bypass-approvals-and-sandbox', action='store_true', help="Pass through Codex's unsafe bypass flag.")
     autopilot_parser.add_argument('--stop-on-finding', action='store_true', help='Stop as soon as a strong candidate is found.')
     return parser
@@ -139,8 +140,8 @@ def _add_codex_task_args(parser: argparse.ArgumentParser, *, timeout_default: st
     parser.add_argument('--timeout', default=timeout_default, help=f'Maximum time budget for each Codex task. Default: {timeout_default}.')
     parser.add_argument('--model', default='', help='Optional Codex model override.')
     parser.add_argument('--reasoning-effort', choices=CODEX_REASONING_EFFORTS, default='', help='Optional Codex reasoning effort override.')
-    parser.add_argument('--sandbox', choices=['read-only', 'workspace-write', 'danger-full-access'], default='workspace-write', help='Sandbox mode for codex exec when not bypassing safeguards.')
-    parser.add_argument('--no-full-auto', action='store_true', help='Do not pass --full-auto to codex exec.')
+    parser.add_argument('--sandbox', choices=['read-only', 'workspace-write', 'danger-full-access'], default='read-only', help='Sandbox mode for codex exec. Defaults to read-only.')
+    parser.add_argument('--full-auto', action='store_true', help='Explicitly enable Codex full-auto mode. Cannot be combined with read-only sandboxing.')
     parser.add_argument('--dangerously-bypass-approvals-and-sandbox', action='store_true', help="Pass through Codex's unsafe bypass flag.")
 
 
@@ -214,12 +215,12 @@ def _run_bootstrap(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         model=args.model,
         reasoning_effort=args.reasoning_effort,
         sandbox=args.sandbox,
-        full_auto=not args.no_full_auto,
+        full_auto=_codex_full_auto(args),
         unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox,
     )
     for key, value in result.items():
         print(f'{key}={value}')
-    return 0 if policy_path.exists() and signals_path.exists() else 1
+    return _task_result_exit_code(result)
 
 
 
@@ -233,7 +234,7 @@ def _run_scan(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     config = load_json_config(Path(args.config).expanduser().resolve()) if args.config else {}
     policy = load_policy(policy_path)
     candidates, language_stats = discover_candidates(repo_root, policy=policy, limit=args.limit, config=config, external_signal_path=(Path(args.signals_json).expanduser().resolve() if args.signals_json else None), crash_dir=(Path(args.crash_dir).expanduser().resolve() if args.crash_dir else None))
-    timestamp = datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')
+    timestamp = datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')
     session_dir = args.out / f'session-{timestamp}'
     write_session_bundle(repo_root=repo_root, out_dir=session_dir, candidates=candidates, top_n=args.top, policy=policy, language_stats=language_stats)
     print(f'session={session_dir}')
@@ -284,7 +285,11 @@ def _run_next(args: argparse.Namespace) -> int:
 
 
 def _run_record(args: argparse.Namespace) -> int:
-    state = record_review(session_dir=Path(args.session_dir).expanduser().resolve(), rank=args.rank, target=args.target, verdict=args.verdict, notes=args.notes, next_target=args.next_target, next_prompt=args.next_prompt, auto_advance=not args.no_auto_advance)
+    session_dir = Path(args.session_dir).expanduser().resolve()
+    manifest = _load_manifest(session_dir)
+    target = normalize_repo_target(Path(manifest['repo_root']), args.target)
+    next_target = normalize_repo_target(Path(manifest['repo_root']), args.next_target) if args.next_target else ''
+    state = record_review(session_dir=session_dir, rank=args.rank, target=target, verdict=args.verdict, notes=args.notes, next_target=next_target, next_prompt=args.next_prompt, auto_advance=not args.no_auto_advance)
     _print_record_result(args.rank, args.verdict, state)
     return 0
 
@@ -303,7 +308,7 @@ def _run_ingest(args: argparse.Namespace) -> int:
 def _run_loop(args: argparse.Namespace) -> int:
     session_dir = Path(args.session_dir).expanduser().resolve()
     state = load_state(session_dir)
-    fixed_response = Path(state.get('pending_response_file', response_path(session_dir)))
+    fixed_response = response_path(session_dir)
     if fixed_response.exists() and fixed_response.stat().st_size > 0:
         pending_rank = state.get('pending_rank')
         pending_target = state.get('pending_target', '').strip()
@@ -360,12 +365,12 @@ def _run_review(args: argparse.Namespace) -> int:
         model=args.model,
         reasoning_effort=args.reasoning_effort,
         sandbox=args.sandbox,
-        full_auto=not args.no_full_auto,
+        full_auto=_codex_full_auto(args),
         unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox,
     )
     for key, value in result.items():
         print(f'{key}={value}')
-    return 0
+    return _task_result_exit_code(result)
 
 
 def _run_chain(args: argparse.Namespace) -> int:
@@ -383,13 +388,13 @@ def _run_chain(args: argparse.Namespace) -> int:
         model=args.model,
         reasoning_effort=args.reasoning_effort,
         sandbox=args.sandbox,
-        full_auto=not args.no_full_auto,
+        full_auto=_codex_full_auto(args),
         unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox,
         batch_size=max(1, int(args.batch_size)),
     )
     for key, value in result.items():
         print(f'{key}={value}')
-    return 0
+    return _task_result_exit_code(result)
 
 
 
@@ -407,12 +412,12 @@ def _run_repro(args: argparse.Namespace) -> int:
         model=args.model,
         reasoning_effort=args.reasoning_effort,
         sandbox=args.sandbox,
-        full_auto=not args.no_full_auto,
+        full_auto=_codex_full_auto(args),
         unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox,
     )
     for key, value in result.items():
         print(f'{key}={value}')
-    return 0
+    return _task_result_exit_code(result)
 
 
 
@@ -432,17 +437,17 @@ def _run_report(args: argparse.Namespace) -> int:
         model=args.model,
         reasoning_effort=args.reasoning_effort,
         sandbox=args.sandbox,
-        full_auto=not args.no_full_auto,
+        full_auto=_codex_full_auto(args),
         unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox,
     )
     for key, value in result.items():
         print(f'{key}={value}')
-    return 0
+    return _task_result_exit_code(result)
 
 
 
 def _run_autopilot(args: argparse.Namespace) -> int:
-    return run_autopilot(Path(args.session_dir), include_snippet=args.include_snippet, duration_spec=args.duration, per_run_timeout_spec=args.per_run_timeout, model=args.model, reasoning_effort=args.reasoning_effort, sandbox=args.sandbox, full_auto=not args.no_full_auto, unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox, stop_on_finding=args.stop_on_finding)
+    return run_autopilot(Path(args.session_dir), include_snippet=args.include_snippet, duration_spec=args.duration, per_run_timeout_spec=args.per_run_timeout, model=args.model, reasoning_effort=args.reasoning_effort, sandbox=args.sandbox, full_auto=_codex_full_auto(args), unsafe_bypass=args.dangerously_bypass_approvals_and_sandbox, stop_on_finding=args.stop_on_finding)
 
 
 
@@ -462,20 +467,29 @@ def _load_rank_prompt(session_dir: Path, manifest: dict, rank: int) -> tuple[str
     if rank < 1 or rank > len(candidates):
         raise SystemExit(f'rank out of range: {rank} (1-{len(candidates)})')
     candidate = candidates[rank - 1]
+    target = normalize_repo_target(Path(manifest['repo_root']).expanduser().resolve(), str(candidate.get('path', '')))
     bundle_dir = session_dir / 'bundles'
     bundle_prefix = f"{rank:02d}-{candidate['path'].replace('/', '__')}"
     prompt_path = bundle_dir / f'{bundle_prefix}.md'
     snippet_path = bundle_dir / f'{bundle_prefix}.snippet.txt'
     if not prompt_path.exists():
         prompt_path, snippet_path = ensure_prompt_bundle(session_dir, manifest, rank)
-    return prompt_path.read_text(encoding='utf-8'), prompt_path, snippet_path, candidate['path']
+    return prompt_path.read_text(encoding='utf-8'), prompt_path, snippet_path, target
 
 
 
 def _print_next_prompt(session_dir: Path, include_snippet: bool) -> None:
     manifest = _load_manifest(session_dir)
     state = load_state(session_dir)
-    manual_target = state.get('manual_next_target', '').strip()
+    repo_root = Path(manifest['repo_root']).expanduser().resolve()
+    raw_manual_target = state.get('manual_next_target', '').strip()
+    try:
+        manual_target = normalize_repo_target(repo_root, raw_manual_target) if raw_manual_target else ''
+    except ValueError:
+        manual_target = ''
+        state['manual_next_target'] = ''
+        state['manual_next_prompt'] = ''
+        save_state(session_dir, state)
     manual_prompt = state.get('manual_next_prompt', '').strip()
     depth = int(state.get('manual_followup_depth', 0))
     if manual_target and depth >= MAX_MANUAL_FOLLOWUPS:
@@ -489,7 +503,7 @@ def _print_next_prompt(session_dir: Path, include_snippet: bool) -> None:
         manual_target = ''
         manual_prompt = ''
     if manual_target:
-        prompt = _manual_followup_prompt(state, Path(manifest['repo_root']).expanduser().resolve(), manual_target, manual_prompt)
+        prompt = _manual_followup_prompt(state, repo_root, manual_target, manual_prompt)
         set_pending_review(session_dir, None, manual_target, str(session_dir / 'review_state.json'))
         _print_codex_runbook(manifest['repo_root'], prompt, session_dir / 'review_state.json', None, False, response_path(session_dir))
         return
@@ -503,8 +517,11 @@ def _print_next_prompt(session_dir: Path, include_snippet: bool) -> None:
 def _ingest_text(session_dir: Path, text: str, rank: int | None, target: str, next_prompt: str, auto_advance: bool) -> dict:
     parsed = parse_response(text)
     state = load_state(session_dir)
+    manifest = _load_manifest(session_dir)
+    repo_root = Path(manifest['repo_root']).expanduser().resolve()
+    target = normalize_repo_target(repo_root, target)
     depth = int(state.get('manual_followup_depth', 0))
-    next_target = parsed['next_target'] if parsed['should_continue'] else ''
+    next_target = normalize_repo_target(repo_root, parsed['next_target']) if parsed['should_continue'] else ''
     if next_target and depth >= MAX_MANUAL_FOLLOWUPS:
         next_target = ''
         next_prompt = ''
@@ -598,7 +615,7 @@ def _select_findings_for_action(session_dir: Path, selectors: list[str], tier_mi
         return finding_files
     review_index_path = session_dir / 'review' / 'review_index.json'
     if not review_index_path.exists():
-        raise SystemExit(f'missing review index: {review_index_path}. Run `oss-harness review` first or omit --tier-min.')
+        raise SystemExit(f'missing review index: {review_index_path}. Run `adaptive-oss-harness review` first or omit --tier-min.')
     review_index = json.loads(review_index_path.read_text(encoding='utf-8'))
     allowed_names = {
         item.get('finding_file')
@@ -615,3 +632,18 @@ def _load_template_text(value: str) -> str:
     if candidate.exists() and candidate.is_file():
         return candidate.read_text(encoding='utf-8')
     return value
+
+
+def _task_result_exit_code(result: dict) -> int:
+    try:
+        failed = int(result.get('failed', 0) or 0)
+    except (TypeError, ValueError):
+        return 1
+    return 1 if failed else 0
+
+
+def _codex_full_auto(args: argparse.Namespace) -> bool:
+    enabled = bool(getattr(args, 'full_auto', False))
+    if enabled and args.sandbox == 'read-only':
+        raise SystemExit('--full-auto requires --sandbox workspace-write or danger-full-access')
+    return enabled

@@ -7,7 +7,8 @@ from copy import deepcopy
 from pathlib import Path
 
 from oss_harness.findings import finding_verdict
-from oss_harness.review_schema import normalize_review_record
+from oss_harness.paths import normalize_repo_target
+from oss_harness.review_schema import normalize_and_validate_review_record
 from oss_harness.reviewing import TIER_ORDER
 
 HOT_PUBLIC_SOURCES = {
@@ -136,25 +137,38 @@ def merge_chain_indexes(session_dirs: dict[str, Path], output_dir: Path) -> dict
     target_counts: dict[str, int] = {}
     promotion_counts: dict[str, int] = {}
     total_clusters = 0
+    invalid_batches: list[dict[str, str]] = []
 
     for session_name in session_order:
         session_dir = session_dirs[session_name].expanduser().resolve()
         chain_index_path = session_dir / 'chain' / 'chain_index.json'
         if not chain_index_path.exists():
             continue
-        chain_index = json.loads(chain_index_path.read_text(encoding='utf-8'))
-        for position, batch in enumerate(chain_index.get('batches', []), start=1):
-            if not isinstance(batch, dict):
+        try:
+            chain_index = json.loads(chain_index_path.read_text(encoding='utf-8'))
+            if not isinstance(chain_index, dict) or not isinstance(chain_index.get('batches'), list):
+                raise ValueError('chain_index.batches must be an array')
+            repo_root = _session_repo_root(session_dir)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            invalid_batches.append({'session': session_name, 'error': str(exc)})
+            continue
+        for position, batch in enumerate(chain_index['batches'], start=1):
+            try:
+                _validate_merged_chain_batch(batch)
+            except ValueError as exc:
+                invalid_batches.append({'session': session_name, 'batch': str(position), 'error': str(exc)})
                 continue
             item = deepcopy(batch)
             item['session'] = session_name
             item['session_batch'] = position
             item['session_dir'] = str(session_dir)
             item['chain_json'] = str(batch.get('_path', ''))
-            top_targets = [str(value).strip() for value in item.get('top_chain_targets', []) if str(value).strip()]
-            promotion_targets = [
-                str(value).strip() for value in item.get('top_promotion_candidates', []) if str(value).strip()
-            ]
+            try:
+                top_targets = [normalize_repo_target(repo_root, value) for value in item['top_chain_targets'] if value.strip()]
+                promotion_targets = [normalize_repo_target(repo_root, value) for value in item['top_promotion_candidates'] if value.strip()]
+            except ValueError as exc:
+                invalid_batches.append({'session': session_name, 'batch': str(position), 'error': str(exc)})
+                continue
             item['top_chain_targets'] = top_targets
             item['top_promotion_candidates'] = promotion_targets
             item['cluster_count'] = len(item.get('clusters', []))
@@ -185,6 +199,7 @@ def merge_chain_indexes(session_dirs: dict[str, Path], output_dir: Path) -> dict
         'top_chain_targets': top_chain_targets,
         'top_promotion_candidates': top_promotion_candidates,
         'batches': merged_batches,
+        'invalid_batches': invalid_batches,
     }
     index_path = output_dir / 'chain_index.json'
     summary_path = output_dir / 'CHAIN_SUMMARY.md'
@@ -197,7 +212,7 @@ def merge_chain_indexes(session_dirs: dict[str, Path], output_dir: Path) -> dict
         ),
         encoding='utf-8',
     )
-    return {'chain_dir': str(output_dir), 'summary': str(summary_path), 'index': str(index_path), 'count': len(merged_batches)}
+    return {'chain_dir': str(output_dir), 'summary': str(summary_path), 'index': str(index_path), 'count': len(merged_batches), 'failed': len(invalid_batches)}
 
 
 def merge_review_indexes(session_dirs: dict[str, Path], output_dir: Path) -> dict[str, object]:
@@ -208,16 +223,26 @@ def merge_review_indexes(session_dirs: dict[str, Path], output_dir: Path) -> dic
     )
     merged_items: list[dict[str, object]] = []
     latent_items: list[dict[str, object]] = []
+    invalid_reviews: list[dict[str, str]] = []
 
     for session_name in session_order:
         session_dir = session_dirs[session_name].expanduser().resolve()
         review_index_path = session_dir / 'review' / 'review_index.json'
         if review_index_path.exists():
-            review_index = json.loads(review_index_path.read_text(encoding='utf-8'))
-            for position, review in enumerate(review_index.get('reviews', []), start=1):
-                if not isinstance(review, dict):
+            try:
+                review_index = json.loads(review_index_path.read_text(encoding='utf-8'))
+                if not isinstance(review_index, dict) or not isinstance(review_index.get('reviews'), list):
+                    raise ValueError('review_index.reviews must be an array')
+                repo_root = _session_repo_root(session_dir)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+                invalid_reviews.append({'session': session_name, 'error': str(exc)})
+                continue
+            for position, review in enumerate(review_index['reviews'], start=1):
+                try:
+                    item = normalize_and_validate_review_record(deepcopy(review), repo_root=repo_root)
+                except ValueError as exc:
+                    invalid_reviews.append({'session': session_name, 'position': str(position), 'error': str(exc)})
                     continue
-                item = normalize_review_record(deepcopy(review))
                 item['session'] = session_name
                 item['session_rank'] = position
                 item['session_dir'] = str(session_dir)
@@ -255,6 +280,26 @@ def merge_review_indexes(session_dirs: dict[str, Path], output_dir: Path) -> dic
                     }
                 )
 
+    raw_review_count = len(merged_items)
+    grouped: dict[tuple, dict[str, object]] = {}
+    for item in merged_items:
+        identity = _review_identity(item)
+        existing = grouped.get(identity)
+        if existing is None:
+            grouped[identity] = item
+            continue
+        combined_hits = list(existing.get('session_hits', [])) + list(item.get('session_hits', []))
+        combined_sessions = list(dict.fromkeys([str(hit.get('session', '')) for hit in combined_hits if isinstance(hit, dict)]))
+        if int(item.get('merged_score', 0)) > int(existing.get('merged_score', 0)):
+            representative = item
+        else:
+            representative = existing
+        representative['session_hits'] = combined_hits
+        representative['sessions'] = combined_sessions
+        representative['duplicate_count'] = len(combined_hits)
+        grouped[identity] = representative
+    merged_items = list(grouped.values())
+
     merged_items.sort(
         key=lambda item: (
             -int(item.get('merged_score', 0)),
@@ -267,17 +312,30 @@ def merge_review_indexes(session_dirs: dict[str, Path], output_dir: Path) -> dic
     for index, item in enumerate(merged_items, start=1):
         item['merged_rank'] = index
 
+    unique_review_count = len(merged_items)
+
     index_payload = {
         'session_order': session_order,
-        'review_count': len(merged_items),
+        'review_count': unique_review_count,
+        'raw_review_count': raw_review_count,
+        'unique_review_count': unique_review_count,
         'reviews': merged_items,
         'latent_findings': latent_items,
+        'invalid_reviews': invalid_reviews,
     }
     index_path = output_dir / 'review_index.json'
     summary_path = output_dir / 'REVIEW_SUMMARY.md'
     index_path.write_text(json.dumps(index_payload, indent=2), encoding='utf-8')
     summary_path.write_text(_render_merged_review_summary(merged_items, latent_items=latent_items), encoding='utf-8')
-    return {'review_dir': str(output_dir), 'summary': str(summary_path), 'index': str(index_path), 'count': len(merged_items)}
+    return {
+        'review_dir': str(output_dir),
+        'summary': str(summary_path),
+        'index': str(index_path),
+        'count': len(merged_items),
+        'raw_count': raw_review_count,
+        'unique_count': unique_review_count,
+        'failed': len(invalid_reviews),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -327,13 +385,13 @@ def main(argv: list[str] | None = None) -> int:
         result = merge_review_indexes(session_dirs, args.out)
         for key, value in result.items():
             print(f'{key}={value}')
-        return 0
+        return 1 if int(result.get('failed', 0) or 0) else 0
     if args.command == 'merge-chains':
         session_dirs = _parse_session_dirs(args.session)
         result = merge_chain_indexes(session_dirs, args.out)
         for key, value in result.items():
             print(f'{key}={value}')
-        return 0
+        return 1 if int(result.get('failed', 0) or 0) else 0
     parser.error(f'unknown command: {args.command}')
     return 2
 
@@ -346,6 +404,53 @@ def _parse_session_dirs(raw_values: list[str]) -> dict[str, Path]:
         name, directory = raw.split('=', 1)
         session_dirs[name.strip()] = Path(directory.strip())
     return session_dirs
+
+
+def _session_repo_root(session_dir: Path) -> Path:
+    manifest_path = session_dir / 'targets.json'
+    if not manifest_path.exists():
+        raise ValueError(f'missing session manifest: {manifest_path}')
+    payload = json.loads(manifest_path.read_text(encoding='utf-8'))
+    if not isinstance(payload, dict) or not isinstance(payload.get('repo_root'), str) or not payload['repo_root'].strip():
+        raise ValueError(f'invalid repo_root in session manifest: {manifest_path}')
+    repo_root = Path(payload['repo_root']).expanduser().resolve()
+    if not repo_root.is_dir():
+        raise ValueError(f'session repository is unavailable: {repo_root}')
+    return repo_root
+
+
+def _validate_merged_chain_batch(batch: object) -> None:
+    if not isinstance(batch, dict):
+        raise ValueError('chain batch must be an object')
+    clusters = batch.get('clusters')
+    if not isinstance(clusters, list) or any(not isinstance(item, dict) for item in clusters):
+        raise ValueError('chain batch clusters must be an array of objects')
+    for field in ('top_chain_targets', 'top_promotion_candidates'):
+        values = batch.get(field)
+        if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+            raise ValueError(f'chain batch {field} must be an array of strings')
+    for index, cluster in enumerate(clusters):
+        for field in ('finding_files', 'shared_entrypoints', 'shared_sinks', 'shared_boundaries', 'promote_first', 'chain_next', 'duplicates_or_near_duplicates', 'notes'):
+            values = cluster.get(field)
+            if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+                raise ValueError(f'clusters[{index}].{field} must be an array of strings')
+
+
+def _review_identity(item: dict[str, object]) -> tuple[tuple[tuple[str, str, str], ...], str]:
+    locations: list[tuple[str, str, str]] = []
+    for value in item.get('evidence_locations', []):
+        if not isinstance(value, dict):
+            continue
+        locations.append(('evidence', str(value.get('file', '')).lower(), str(value.get('symbol', '')).lower()))
+    for field, role in (('entrypoints', 'entrypoint'), ('sinks', 'sink')):
+        for value in item.get(field, []):
+            if not isinstance(value, dict) or not isinstance(value.get('location'), dict):
+                continue
+            location = value['location']
+            locations.append((role, str(location.get('file', '')).lower(), str(location.get('symbol', '')).lower()))
+    canonical_locations = tuple(sorted(set(location for location in locations if location[1])))
+    normalized_title = _normalize_text(str(item.get('title', '')))
+    return canonical_locations, normalized_title
 
 
 def _adapt_signal(item: dict[str, object], variant: str) -> dict[str, object] | None:
@@ -499,7 +604,7 @@ def _merged_score(item: dict[str, object]) -> int:
     tier_score = TIER_ORDER.get(str(item.get('tier', 'D')).upper(), 0)
     confidence_score = CONFIDENCE_ORDER.get(str(item.get('confidence', 'low')).lower(), 0)
     session_rank = int(item.get('session_rank', 10_000) or 10_000)
-    return tier_score * 100 + confidence_score * 10 + max(0, 1000 - min(session_rank, 1000))
+    return tier_score * 100_000 + confidence_score * 10_000 + max(0, 1000 - min(session_rank, 1000))
 
 
 def _session_sort_index(session: str, session_order: list[str]) -> int:

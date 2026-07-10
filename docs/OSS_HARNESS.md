@@ -14,7 +14,7 @@
 Create a policy file once per target repository:
 
 ```bash
-oss-harness init-policy /path/to/repo/.codex-harness.md
+adaptive-oss-harness init-policy /path/to/repo/.codex-harness.md
 ```
 
 The scanner understands both core sections and biasing sections:
@@ -41,8 +41,8 @@ The policy is injected into prompts and also directly affects ranking.
 ```bash
 python3 -m oss_harness scan /path/to/repo   --policy /path/to/repo/.codex-harness.md   --signals-json /path/to/signals.json   --crash-dir /path/to/crash-logs   --out /tmp/oss-artifacts
 
-python3 -m oss_harness inspect /tmp/oss-artifacts/session-YYYYMMDDTHHMMSSZ --top 10
-python3 -m oss_harness autopilot /tmp/oss-artifacts/session-YYYYMMDDTHHMMSSZ --duration 2h --per-run-timeout 20m --include-snippet
+python3 -m oss_harness inspect /tmp/oss-artifacts/session-<UTC-timestamp> --top 10
+python3 -m oss_harness autopilot /tmp/oss-artifacts/session-<UTC-timestamp> --duration 2h --per-run-timeout 20m --include-snippet
 ```
 
 By default, `scan` creates prompt bundles for the top 45 ranked candidates, or fewer if the session retains fewer candidates.
@@ -102,9 +102,9 @@ Each ranked target now carries more context into Codex:
 4. stores logs and findings
 5. follows one branch briefly if Codex names a better adjacent target
 6. cools off repeated dead-end targets
-7. cools off entire low-yield subsystems after repeated stalling verdicts
+7. uses a fixed prefix first, then reallocates batched tail exploration using first-pass verdict proxies
 
-This keeps unattended runs from wasting the whole budget on one bad branch.
+This keeps unattended runs from wasting the whole budget on one bad branch. Timeouts and parse errors are retried as operational failures and do not become search rewards.
 
 Autopilot also writes lightweight local diagnostics under `autopilot/`:
 

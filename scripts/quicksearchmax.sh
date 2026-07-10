@@ -27,7 +27,8 @@ Options:
   --progress-interval SEC   Print per-session progress every SEC seconds when parallel. Default: 30
   --model MODEL             Optional Codex model override
   --reasoning-effort EFFORT Optional Codex reasoning effort override: low, medium, high, or xhigh
-  --sandbox MODE            Codex sandbox mode. Default: workspace-write
+  --sandbox MODE            Codex sandbox mode. Default: read-only
+  --full-auto               Explicitly enable Codex full-auto; requires a writable sandbox
   --no-include-snippet      Do not pass --include-snippet to autopilot
   --unsafe-bypass           Pass --dangerously-bypass-approvals-and-sandbox
   -h, --help                Show help
@@ -50,9 +51,10 @@ PARALLEL_SESSIONS="1"
 PROGRESS_INTERVAL="30"
 MODEL=""
 REASONING_EFFORT=""
-SANDBOX="workspace-write"
+SANDBOX="read-only"
 INCLUDE_SNIPPET=1
 UNSAFE_BYPASS=0
+FULL_AUTO=0
 RESUME_MODE=0
 
 while [[ $# -gt 0 ]]; do
@@ -101,6 +103,10 @@ while [[ $# -gt 0 ]]; do
       SANDBOX="$2"
       shift 2
       ;;
+    --full-auto)
+      FULL_AUTO=1
+      shift
+      ;;
     --no-include-snippet)
       INCLUDE_SNIPPET=0
       shift
@@ -137,6 +143,10 @@ fi
 
 if ! [[ "$PROGRESS_INTERVAL" =~ ^[0-9]+$ ]] || [[ "$PROGRESS_INTERVAL" -lt 1 ]]; then
   printf 'invalid --progress-interval: %s\n' "$PROGRESS_INTERVAL" >&2
+  exit 1
+fi
+if [[ "$FULL_AUTO" -eq 1 && "$SANDBOX" == "read-only" ]]; then
+  printf '%s\n' '--full-auto requires --sandbox workspace-write or danger-full-access' >&2
   exit 1
 fi
 
@@ -224,6 +234,9 @@ if [[ -n "$REASONING_EFFORT" ]]; then
   COMMON_ARGS+=(--reasoning-effort "$REASONING_EFFORT")
 fi
 COMMON_ARGS+=(--sandbox "$SANDBOX")
+if [[ "$FULL_AUTO" -eq 1 ]]; then
+  COMMON_ARGS+=(--full-auto)
+fi
 if [[ "$UNSAFE_BYPASS" -eq 1 ]]; then
   COMMON_ARGS+=(--dangerously-bypass-approvals-and-sandbox)
 fi
@@ -373,11 +386,12 @@ PY3
     [[ -n "$pending_target" ]] && printf 'pending_target=%s\n' "$pending_target"
     [[ -n "$manual_next_target" ]] && printf 'manual_next_target=%s\n' "$manual_next_target"
     [[ -n "$failure_detail" ]] && printf 'failure_detail=%s\n' "$failure_detail"
-    printf 'resume_command=bash scripts/quicksearchmax.sh --resume-run-dir %s --duration %s --per-run-timeout %s --review-timeout %s --parallel-sessions %s --progress-interval %s --sandbox %s%s%s%s\n' \
+    printf 'resume_command=bash scripts/quicksearchmax.sh --resume-run-dir %s --duration %s --per-run-timeout %s --review-timeout %s --parallel-sessions %s --progress-interval %s --sandbox %s%s%s%s%s\n' \
       "$RUN_DIR" "$DURATION" "$PER_RUN_TIMEOUT" "$REVIEW_TIMEOUT" "$PARALLEL_SESSIONS" "$PROGRESS_INTERVAL" "$SANDBOX" \
       "${MODEL:+ --model $MODEL}" \
       "${REASONING_EFFORT:+ --reasoning-effort $REASONING_EFFORT}" \
       "$( [[ "$INCLUDE_SNIPPET" -eq 0 ]] && printf ' --no-include-snippet' )" \
+      "$( [[ "$FULL_AUTO" -eq 1 ]] && printf ' --full-auto' )" \
       "$( [[ "$UNSAFE_BYPASS" -eq 1 ]] && printf ' --unsafe-bypass' )"
   } > "$hint_file"
 
@@ -473,8 +487,9 @@ run_session() {
   set -e
 
   if [[ "$autopilot_rc" -eq 0 ]]; then
-    run_review_for_session "$session_name"
-    return 0
+    local review_rc=0
+    run_review_for_session "$session_name" || review_rc=$?
+    return "$review_rc"
   fi
 
   write_session_stop_hint "$session_name"
@@ -617,11 +632,12 @@ if [[ "$resume_required" -ne 0 ]]; then
       fi
     fi
   done
-  printf '[resume-required] rerun with: bash scripts/quicksearchmax.sh --resume-run-dir %s --duration %s --per-run-timeout %s --review-timeout %s --parallel-sessions %s --progress-interval %s --sandbox %s%s%s%s\n' \
+  printf '[resume-required] rerun with: bash scripts/quicksearchmax.sh --resume-run-dir %s --duration %s --per-run-timeout %s --review-timeout %s --parallel-sessions %s --progress-interval %s --sandbox %s%s%s%s%s\n' \
     "$RUN_DIR" "$DURATION" "$PER_RUN_TIMEOUT" "$REVIEW_TIMEOUT" "$PARALLEL_SESSIONS" "$PROGRESS_INTERVAL" "$SANDBOX" \
     "${MODEL:+ --model $MODEL}" \
     "${REASONING_EFFORT:+ --reasoning-effort $REASONING_EFFORT}" \
     "$( [[ "$INCLUDE_SNIPPET" -eq 0 ]] && printf ' --no-include-snippet' )" \
+    "$( [[ "$FULL_AUTO" -eq 1 ]] && printf ' --full-auto' )" \
     "$( [[ "$UNSAFE_BYPASS" -eq 1 ]] && printf ' --unsafe-bypass' )"
   exit 75
 fi

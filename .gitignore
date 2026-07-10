@@ -3,8 +3,13 @@ __pycache__/
 *.pyo
 *.pyd
 .build/
+build/
 dist/
 *.egg-info/
 artifacts/
 .tmp/
 *.log
+.venv/
+.coverage
+.pytest_cache/
+.git_backup/

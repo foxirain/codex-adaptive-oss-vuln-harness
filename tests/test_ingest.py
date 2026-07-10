@@ -47,6 +47,14 @@ class IngestTests(unittest.TestCase):
         self.assertEqual(parsed['verdict'], 'latent_bug')
         self.assertTrue(parsed['should_continue'])
 
+    def test_negative_prose_is_not_treated_as_a_verdict(self) -> None:
+        with self.assertRaisesRegex(ValueError, 'exactly one strict verdict'):
+            parse_response('There is insufficient evidence to consider this a CVE candidate.')
+
+    def test_duplicate_verdict_fields_are_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, 'exactly one strict verdict'):
+            parse_response('Strict verdict: discarding\nFinal verdict: discarding\n')
+
 
 if __name__ == '__main__':
     unittest.main()

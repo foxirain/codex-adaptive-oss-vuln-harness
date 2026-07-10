@@ -12,6 +12,7 @@ from oss_harness.history import collect_git_history_signals
 from oss_harness.models import Candidate, ExternalSignal, LanguageStat, Signal
 from oss_harness.semantic import build_semantic_index
 from oss_harness.policy import policy_list
+from oss_harness.paths import iter_safe_repo_files, safe_repo_file
 
 COMMON_EXCLUDE_DIRS = {
     '.git', '.github', '.venv', '.next', '.nuxt', '.tox', '.mypy_cache', '.pytest_cache',
@@ -202,9 +203,7 @@ def discover_candidates(repo_root: Path, policy: dict, limit: int, config: dict 
     external_index = load_external_signal_index(external_signal_path)
     crash_index = load_crash_signal_index(repo_root, crash_dir)
     git_index = collect_git_history_signals(repo_root)
-    for file_path in repo_root.rglob('*'):
-        if not file_path.is_file():
-            continue
+    for file_path in iter_safe_repo_files(repo_root):
         rel_text = str(file_path.relative_to(repo_root)).replace('\\', '/')
         if _should_skip_path(rel_text, include_prefixes, exclude_prefixes, ignore_patterns):
             continue
@@ -215,9 +214,7 @@ def discover_candidates(repo_root: Path, policy: dict, limit: int, config: dict 
     semantic_index = build_semantic_index(repo_root, language_map)
 
     candidates: list[Candidate] = []
-    for file_path in repo_root.rglob('*'):
-        if not file_path.is_file():
-            continue
+    for file_path in iter_safe_repo_files(repo_root):
         rel_text = str(file_path.relative_to(repo_root)).replace('\\', '/')
         if _should_skip_path(rel_text, include_prefixes, exclude_prefixes, ignore_patterns):
             continue
@@ -256,9 +253,7 @@ def discover_candidates(repo_root: Path, policy: dict, limit: int, config: dict 
 
 def _detect_languages(repo_root: Path) -> Counter[str]:
     counts: Counter[str] = Counter()
-    for file_path in repo_root.rglob('*'):
-        if not file_path.is_file():
-            continue
+    for file_path in iter_safe_repo_files(repo_root):
         rel_text = str(file_path.relative_to(repo_root)).replace('\\', '/')
         if _matches_excluded_pattern(rel_text):
             continue
@@ -436,15 +431,13 @@ def _detect_repo_context(repo_root: Path, active_languages: set[str], framework_
     repo_signals: list[ExternalSignal] = []
     for language in active_languages:
         for marker in REPO_FILES.get(language, []):
-            candidate = repo_root / marker
-            if candidate.exists():
+            candidate = safe_repo_file(repo_root, marker)
+            if candidate is not None:
                 repo_signals.append(ExternalSignal(source='repo', weight=3, summary=f'manifest:{marker}', metadata={'language': language}))
     sampled_files = 0
-    for file_path in repo_root.rglob('*'):
+    for file_path in iter_safe_repo_files(repo_root):
         if sampled_files >= 200:
             break
-        if not file_path.is_file():
-            continue
         sampled_files += 1
         try:
             text = file_path.read_text(encoding='utf-8', errors='ignore')

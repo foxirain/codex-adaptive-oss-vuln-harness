@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from pathlib import Path
+
+from oss_harness.ingest import parse_response
 
 AUTOPILOT_FINDINGS_DIRNAME = 'autopilot/findings'
 
@@ -15,18 +18,25 @@ def list_finding_files(session_dir: Path) -> list[Path]:
     base = finding_dir(session_dir)
     if not base.exists():
         return []
-    return sorted(path for path in base.glob('finding-*.txt') if path.is_file())
+    return sorted(path for path in base.glob('finding-*.txt') if path.is_file() and not path.is_symlink())
 
 
 def select_finding_files(session_dir: Path, selectors: list[str] | None = None) -> list[Path]:
     files = list_finding_files(session_dir)
+    base = finding_dir(session_dir).resolve()
     if not selectors:
         return files
     selected: list[Path] = []
     for selector in selectors:
         selector_path = Path(selector)
         if selector_path.exists():
-            selected.append(selector_path.expanduser().resolve())
+            resolved = selector_path.expanduser().resolve()
+            try:
+                resolved.relative_to(base)
+            except ValueError:
+                continue
+            if not selector_path.is_symlink() and resolved.is_file():
+                selected.append(resolved)
             continue
         for candidate in files:
             if selector == candidate.name or selector == candidate.stem or selector in candidate.name:
@@ -49,29 +59,24 @@ def finding_slug(path: Path) -> str:
 
 
 def finding_verdict(path: Path) -> str:
+    metadata_path = path.with_suffix('.json')
+    if metadata_path.exists():
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
+            verdict = str(metadata.get('verdict', '') or '')
+            content_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+            if metadata.get('content_sha256') == content_hash and verdict in {'cve_candidate', 'plausible_security_bug', 'latent_bug', 'discarding', 'needs_more_context'}:
+                return verdict
+        except (OSError, ValueError, TypeError):
+            pass
     try:
         text = path.read_text(encoding='utf-8')
     except OSError:
         return ''
-    for line in text.splitlines()[:8]:
-        lowered = line.strip().strip('`').lower()
-        if lowered.startswith('strict verdict:'):
-            lowered = lowered.split(':', 1)[1].strip().strip('`')
-        if lowered.startswith('- '):
-            lowered = lowered[2:].strip().strip('`')
-        if lowered == 'cve_candidate':
-            return 'cve_candidate'
-        if lowered == 'plausible_security_bug':
-            return 'plausible_security_bug'
-        if lowered == 'latent_bug':
-            return 'latent_bug'
-        if lowered == 'discarding':
-            return 'discarding'
-        if lowered == 'needs_more_context':
-            return 'needs_more_context'
-        if lowered == 'not_cve_candidate':
-            return 'discarding'
-    return ''
+    try:
+        return str(parse_response(text)['verdict'])
+    except ValueError:
+        return ''
 
 
 def filter_finding_files_by_verdict(finding_files: list[Path], allowed_verdicts: set[str]) -> list[Path]:

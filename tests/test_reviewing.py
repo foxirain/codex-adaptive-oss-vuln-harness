@@ -9,7 +9,7 @@ from oss_harness.reviewing import _normalize_review_json_file
 
 
 class ReviewingTests(unittest.TestCase):
-    def test_normalize_review_json_file_rewrites_missing_structured_fields(self) -> None:
+    def test_normalize_review_json_file_rejects_missing_structured_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "review.json"
             path.write_text(
@@ -29,14 +29,8 @@ class ReviewingTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            _normalize_review_json_file(path)
-            item = json.loads(path.read_text(encoding="utf-8"))
-
-        self.assertEqual(item["schema_version"], "2.0")
-        self.assertEqual(item["attacker_control"]["summary"], "attacker controls x")
-        self.assertEqual(item["reachability"]["summary"], "reachable in normal flow")
-        self.assertEqual(item["entrypoints"], [])
-        self.assertEqual(item["sinks"], [])
+            with self.assertRaisesRegex(ValueError, 'missing required review field'):
+                _normalize_review_json_file(path)
 
 
 if __name__ == "__main__":

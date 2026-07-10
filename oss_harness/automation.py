@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
 from pathlib import Path
 
 from oss_harness.executor import parse_duration, run_codex_exec
+from oss_harness.paths import safe_repo_file
+from oss_harness.structured import load_json_response, require_nonempty_text
+
+
+ALLOWED_SIGNAL_SOURCES = {'syzbot', 'oss-fuzz', 'clusterfuzz', 'sanitizer', 'advisory', 'cve', 'issue', 'pr', 'git', 'hardening', 'manual'}
 
 
 def run_bootstrap(
@@ -28,8 +34,10 @@ def run_bootstrap(
     response_file = out_dir / 'bootstrap-response.txt'
     stdout_file = out_dir / 'bootstrap.stdout.txt'
     stderr_file = out_dir / 'bootstrap.stderr.txt'
+    failure_path = out_dir / 'bootstrap.failure.txt'
+    failure_path.unlink(missing_ok=True)
 
-    prompt = _bootstrap_prompt(repo_root, policy_path, signals_path, summary_path)
+    prompt = _bootstrap_prompt(repo_root)
     artifacts = run_codex_exec(
         repo_root=repo_root,
         prompt_text=prompt,
@@ -42,8 +50,25 @@ def run_bootstrap(
         sandbox=sandbox,
         full_auto=full_auto,
         unsafe_bypass=unsafe_bypass,
-        add_dirs=[out_dir, policy_path.parent, signals_path.parent],
     )
+    failure = ''
+    if artifacts.returncode != 0:
+        failure = f'codex exited with status {artifacts.returncode}'
+    else:
+        try:
+            payload = load_json_response(response_file)
+            policy_markdown = require_nonempty_text(payload.get('policy_markdown'), 'policy_markdown')
+            summary_markdown = require_nonempty_text(payload.get('summary_markdown'), 'summary_markdown')
+            signals = _validate_signals(repo_root, payload.get('signals'))
+            policy_path.parent.mkdir(parents=True, exist_ok=True)
+            signals_path.parent.mkdir(parents=True, exist_ok=True)
+            policy_path.write_text(policy_markdown.rstrip() + '\n', encoding='utf-8')
+            signals_path.write_text(json.dumps({'signals': signals}, indent=2) + '\n', encoding='utf-8')
+            summary_path.write_text(summary_markdown.rstrip() + '\n', encoding='utf-8')
+        except (OSError, ValueError, TypeError) as exc:
+            failure = str(exc)
+    if failure:
+        failure_path.write_text(failure + '\n', encoding='utf-8')
     return {
         'policy': str(policy_path),
         'signals': str(signals_path),
@@ -52,10 +77,14 @@ def run_bootstrap(
         'stdout_file': str(stdout_file),
         'stderr_file': str(stderr_file),
         'returncode': str(artifacts.returncode),
+        'requested': '1',
+        'succeeded': '0' if failure else '1',
+        'failed': '1' if failure else '0',
+        'failure': failure,
     }
 
 
-def _bootstrap_prompt(repo_root: Path, policy_path: Path, signals_path: Path, summary_path: Path) -> str:
+def _bootstrap_prompt(repo_root: Path) -> str:
     today = datetime.now(UTC).strftime('%Y-%m-%d')
     return f'''You are preparing a Codex OSS vulnerability-hunting harness bootstrap for a repository.
 
@@ -66,10 +95,7 @@ You must use both:
 1. web search for latest project policy / advisory / security-process data
 2. local repository analysis for actual attack surface, entrypoints, hot paths, and likely sinks
 
-Create exactly these files:
-- policy file: {policy_path}
-- external signals json: {signals_path}
-- short bootstrap summary: {summary_path}
+Do not modify the repository or create files. Return one exact JSON object as your final response.
 
 Requirements for the policy file:
 - Write a final `.codex-harness.md` ready for direct harness use.
@@ -104,10 +130,10 @@ Exact policy file structure:
 ## Ignore Patterns
 ## Notes
 
-Requirements for the signals file:
-- Produce JSON with exactly this top-level shape:
-  {{
-    "signals": [
+Final response schema:
+{{
+  "policy_markdown": "complete policy Markdown",
+  "signals": [
       {{
         "path": "...",
         "source": "...",
@@ -115,8 +141,11 @@ Requirements for the signals file:
         "summary": "...",
         "metadata": {{...}}
       }}
-    ]
-  }}
+  ],
+  "summary_markdown": "short bootstrap summary Markdown"
+}}
+
+Requirements for `signals`:
 - Use only repository-internal paths.
 - Exclude tests, examples, docs, generated code, and vendor dependencies.
 - Identify the project type first, then prioritize the strongest matching artifact sources.
@@ -129,7 +158,7 @@ Requirements for the signals file:
 - Allowed source labels: syzbot, oss-fuzz, clusterfuzz, sanitizer, advisory, cve, issue, pr, git, hardening, manual
 - Each signal should reflect confidence through weight and metadata.
 
-Requirements for the bootstrap summary:
+Requirements for `summary_markdown`:
 - Keep it short.
 - Include:
   - project_type
@@ -138,5 +167,29 @@ Requirements for the bootstrap summary:
   - ambiguous_areas
   - output_files
 
-Do not merely print the content in the final response. Write the files directly at the paths above, then print a short confirmation summarizing what you wrote.
+Return only the JSON object. Do not use a Markdown code fence or add commentary.
 '''
+
+
+def _validate_signals(repo_root: Path, value: object) -> list[dict]:
+    if not isinstance(value, list):
+        raise ValueError('signals must be a JSON array')
+    validated: list[dict] = []
+    for index, raw in enumerate(value):
+        if not isinstance(raw, dict):
+            raise ValueError(f'signals[{index}] must be an object')
+        path = require_nonempty_text(raw.get('path'), f'signals[{index}].path').replace('\\', '/')
+        if safe_repo_file(repo_root, path) is None:
+            raise ValueError(f'signals[{index}].path is not a repository-internal file: {path}')
+        source = require_nonempty_text(raw.get('source'), f'signals[{index}].source').lower()
+        if source not in ALLOWED_SIGNAL_SOURCES:
+            raise ValueError(f'signals[{index}].source is not allowed: {source}')
+        weight = raw.get('weight')
+        if isinstance(weight, bool) or not isinstance(weight, int) or not 1 <= weight <= 15:
+            raise ValueError(f'signals[{index}].weight must be an integer from 1 to 15')
+        summary = require_nonempty_text(raw.get('summary'), f'signals[{index}].summary')
+        metadata = raw.get('metadata', {})
+        if not isinstance(metadata, dict):
+            raise ValueError(f'signals[{index}].metadata must be an object')
+        validated.append({'path': path, 'source': source, 'weight': weight, 'summary': summary, 'metadata': metadata})
+    return validated

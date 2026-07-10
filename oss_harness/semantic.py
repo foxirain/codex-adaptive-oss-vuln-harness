@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from oss_harness.paths import safe_repo_file
+
 from oss_harness.models import SymbolHint
 
 GENERIC_FUNCTION_PATTERNS = {
@@ -53,7 +55,9 @@ def build_semantic_index(repo_root: Path, language_map: dict[str, str], max_file
     index: dict[str, SemanticFile] = {}
     for rel_path in sorted(language_map)[:max_files]:
         language = language_map[rel_path]
-        file_path = repo_root / rel_path
+        file_path = safe_repo_file(repo_root, rel_path)
+        if file_path is None:
+            continue
         try:
             text = file_path.read_text(encoding='utf-8', errors='ignore')
         except OSError:
