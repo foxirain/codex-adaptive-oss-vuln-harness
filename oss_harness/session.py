@@ -81,6 +81,13 @@ def _normalize_state(session_dir: Path, state: dict) -> dict:
             for item in state.get('pending_failures', [])
             if isinstance(item, dict)
         ],
+        'operationally_exhausted_targets': list(
+            dict.fromkeys(
+                str(target).strip()
+                for target in state.get('operationally_exhausted_targets', [])
+                if str(target).strip()
+            )
+        ),
         'dynamic_tail_shortlist': [int(value) for value in state.get('dynamic_tail_shortlist', []) if int(value or 0) > 0],
         'bandit': _normalize_bandit_state(state.get('bandit')),
     }
@@ -138,6 +145,11 @@ def set_pending_review(session_dir: Path, rank: int | None, target: str, prompt_
     if is_new_target:
         state['pending_retry_count'] = 0
         state['pending_failures'] = []
+        state['operationally_exhausted_targets'] = [
+            exhausted
+            for exhausted in state.get('operationally_exhausted_targets', [])
+            if exhausted != target
+        ]
     save_state(session_dir, state)
     return state
 
@@ -153,6 +165,11 @@ def record_review(
     auto_advance: bool,
 ) -> dict:
     state = load_state(session_dir)
+    state['operationally_exhausted_targets'] = [
+        exhausted
+        for exhausted in state.get('operationally_exhausted_targets', [])
+        if exhausted != target
+    ]
     state['history'].append(
         {
             'rank': rank,

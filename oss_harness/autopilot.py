@@ -171,19 +171,25 @@ def run_autopilot(
                 prompt_source=next_prompt['prompt_source'],
             )
         except SystemExit as exc:
-            _append_text(progress_path, f'stop_reason={exc}\n')
-            _trace_event(trace_path, 'stop', reason=str(exc))
+            state = load_state(session_dir)
+            exhausted_targets = list(state.get('operationally_exhausted_targets', []))
+            stop_reason = 'operational_retries_exhausted' if exhausted_targets else str(exc)
+            stage = 'finished_with_failures' if exhausted_targets else 'finished'
+            _append_text(progress_path, f'stop_reason={stop_reason}\nselection_stop={exc}\n')
+            _trace_event(trace_path, 'stop', reason=stop_reason, exhausted_targets=' | '.join(exhausted_targets))
             _write_status(
                 status_path,
-                stage='finished',
+                stage=stage,
+                stop_reason=stop_reason,
                 session_dir=session_dir,
                 repo_root=manifest.get('repo_root', ''),
                 started_at=started_at,
                 duration_spec=duration_spec,
                 runs=run_index,
-                bandit_step=load_state(session_dir).get('bandit', {}).get('global_step', 0),
+                exhausted_targets=' | '.join(exhausted_targets),
+                bandit_step=state.get('bandit', {}).get('global_step', 0),
             )
-            return 0
+            return 2 if exhausted_targets else 0
 
         run_index += 1
         prompt_path = prompts_dir / f'run-{run_index:04d}.prompt.txt'
@@ -349,6 +355,23 @@ def run_autopilot(
         )
         _append_text(progress_path, f'== AUTOPILOT END retry_pending={last_kind} ==\n')
         return 124 if last_kind == 'timeout' else 2
+    exhausted_targets = list(final_state.get('operationally_exhausted_targets', []))
+    if exhausted_targets:
+        _write_status(
+            status_path,
+            stage='finished_with_failures',
+            stop_reason='operational_retries_exhausted',
+            session_dir=session_dir,
+            repo_root=manifest.get('repo_root', ''),
+            started_at=started_at,
+            duration_spec=duration_spec,
+            runs=run_index,
+            exhausted_targets=' | '.join(exhausted_targets),
+            bandit_step=final_state.get('bandit', {}).get('global_step', 0),
+        )
+        _append_text(progress_path, '== AUTOPILOT END operational_retries_exhausted ==\n')
+        _trace_event(trace_path, 'autopilot_end_with_failures', runs=run_index, exhausted_targets=' | '.join(exhausted_targets))
+        return 2
     _write_status(
         status_path,
         stage='finished',
@@ -653,11 +676,30 @@ def _register_pending_failure(session_dir: Path, kind: str, detail: str) -> dict
     failures = list(state.get('pending_failures', []))
     failures.append({'kind': kind, 'detail': detail[:320], 'retry': retry_count})
     state['pending_failures'] = failures[-MAX_OPERATION_ATTEMPTS:]
+    retry_exhausted = retry_count >= MAX_OPERATION_ATTEMPTS
+    if retry_exhausted:
+        pending_target = str(state.get('pending_target', '') or '').strip()
+        if pending_target:
+            exhausted = list(state.get('operationally_exhausted_targets', []))
+            if pending_target not in exhausted:
+                exhausted.append(pending_target)
+            state['operationally_exhausted_targets'] = exhausted
+        if state.get('pending_rank') is None:
+            state['manual_next_target'] = ''
+            state['manual_next_prompt'] = ''
+            state['manual_followup_depth'] = 0
+        state['pending_rank'] = None
+        state['pending_target'] = ''
+        state['pending_prompt_source'] = ''
+        state['pending_subsystem'] = ''
+        state['pending_runtime_ms'] = 0
+        state['pending_retry_count'] = 0
+        state['pending_failures'] = []
     save_state(session_dir, state)
     return {
-        'retryable_failure': True,
+        'retryable_failure': not retry_exhausted,
         'retry_count': retry_count,
-        'retry_exhausted': retry_count >= MAX_OPERATION_ATTEMPTS,
+        'retry_exhausted': retry_exhausted,
     }
 
 
@@ -878,6 +920,7 @@ def _manual_followup_prompt(state: dict, repo_root: Path, manual_target: str, ma
 
 def _next_pending_rank(session_dir: Path, state: dict, manifest: dict, *, trace_path: Path | None = None) -> tuple[int, dict, dict]:
     done = completed_ranks(state)
+    exhausted_targets = set(state.get('operationally_exhausted_targets', []))
     candidates = manifest.get('candidates', [])
     candidate_map = {item.get('path', ''): item for item in candidates}
     max_raw_score = max((float(item.get('score', 0.0) or 0.0) for item in candidates), default=0.0)
@@ -887,6 +930,9 @@ def _next_pending_rank(session_dir: Path, state: dict, manifest: dict, *, trace_
             _trace_event(trace_path, 'skip_candidate', rank=rank, reason='already_completed')
             continue
         target = candidate.get('path', '')
+        if target in exhausted_targets:
+            _trace_event(trace_path, 'skip_candidate', rank=rank, target=target, reason='operational_retries_exhausted')
+            continue
         if not _is_actionable_candidate(target):
             _trace_event(trace_path, 'skip_candidate', rank=rank, target=target, reason='not_actionable')
             continue

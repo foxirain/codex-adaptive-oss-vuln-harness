@@ -11,8 +11,9 @@ from oss_harness.autopilot import (
     _register_pending_failure,
     _subsystem_priority_score,
     _target_subsystem,
+    run_autopilot,
 )
-from oss_harness.session import load_state, record_review, save_state
+from oss_harness.session import load_state, record_review, save_state, set_pending_review
 
 
 class AutopilotBanditTests(unittest.TestCase):
@@ -198,15 +199,123 @@ class SessionBanditStateTests(unittest.TestCase):
             )
             first = _register_pending_failure(session_dir, 'timeout', 'timed out')
             second = _register_pending_failure(session_dir, 'parse_error', 'invalid response')
+            state_before_exhaustion = load_state(session_dir)
             third = _register_pending_failure(session_dir, 'timeout', 'timed out again')
             state = load_state(session_dir)
 
         self.assertFalse(first['retry_exhausted'])
         self.assertFalse(second['retry_exhausted'])
         self.assertTrue(third['retry_exhausted'])
+        self.assertFalse(third['retryable_failure'])
+        self.assertEqual(state_before_exhaustion['pending_target'], 'src/a.py')
         self.assertEqual(state['history'], [])
         self.assertEqual(state['bandit']['global_step'], 0)
+        self.assertEqual(state['pending_target'], '')
+        self.assertEqual(state['pending_retry_count'], 0)
+        self.assertEqual(state['operationally_exhausted_targets'], ['src/a.py'])
+
+    def test_exhausted_operational_target_is_not_resumed_on_next_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_dir = Path(tmpdir)
+            repo_root = session_dir / 'repo'
+            (repo_root / 'src').mkdir(parents=True)
+            (repo_root / 'src' / 'a.py').write_text('def a(): pass\n', encoding='utf-8')
+            (repo_root / 'src' / 'b.py').write_text('def b(): pass\n', encoding='utf-8')
+            (session_dir / 'targets.json').write_text(
+                json.dumps(
+                    {
+                        'repo_root': str(repo_root),
+                        'candidate_count': 2,
+                        'candidates': [
+                            {'path': 'src/a.py', 'score': 2.0},
+                            {'path': 'src/b.py', 'score': 1.0},
+                        ],
+                    }
+                ),
+                encoding='utf-8',
+            )
+            save_state(
+                session_dir,
+                {
+                    'current_rank': 1,
+                    'history': [],
+                    'pending_rank': 1,
+                    'pending_target': 'src/a.py',
+                    'pending_prompt_source': '',
+                    'bandit': {'global_step': 0, 'subsystems': {}, 'targets': {}},
+                },
+            )
+            for _ in range(3):
+                _register_pending_failure(session_dir, 'timeout', 'timed out')
+            rendered = _render_next_prompt(session_dir, include_snippet=False)
+            state = load_state(session_dir)
+
+        self.assertEqual(rendered['rank'], 2)
+        self.assertEqual(rendered['target'], 'src/b.py')
+        self.assertEqual(state['history'], [])
+        self.assertEqual(state['bandit']['global_step'], 0)
+
+    def test_explicit_pending_selection_reenables_an_exhausted_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_dir = Path(tmpdir)
+            save_state(
+                session_dir,
+                {
+                    'pending_rank': None,
+                    'pending_target': '',
+                    'operationally_exhausted_targets': ['src/a.py'],
+                },
+            )
+            set_pending_review(session_dir, 1, 'src/a.py', 'manual retry')
+            state = load_state(session_dir)
+
         self.assertEqual(state['pending_target'], 'src/a.py')
+        self.assertEqual(state['pending_retry_count'], 0)
+        self.assertEqual(state['operationally_exhausted_targets'], [])
+
+    def test_autopilot_reports_failure_when_only_target_is_exhausted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_dir = Path(tmpdir)
+            repo_root = session_dir / 'repo'
+            (repo_root / 'src').mkdir(parents=True)
+            (repo_root / 'src' / 'a.py').write_text('def a(): pass\n', encoding='utf-8')
+            (session_dir / 'targets.json').write_text(
+                json.dumps(
+                    {
+                        'repo_root': str(repo_root),
+                        'candidate_count': 1,
+                        'candidates': [{'path': 'src/a.py', 'score': 1.0}],
+                    }
+                ),
+                encoding='utf-8',
+            )
+            save_state(
+                session_dir,
+                {
+                    'history': [],
+                    'operationally_exhausted_targets': ['src/a.py'],
+                    'bandit': {'global_step': 0, 'subsystems': {}, 'targets': {}},
+                },
+            )
+            returncode = run_autopilot(
+                session_dir,
+                include_snippet=False,
+                duration_spec='1s',
+                per_run_timeout_spec='1s',
+                model='',
+                reasoning_effort='high',
+                sandbox='read-only',
+                full_auto=False,
+                unsafe_bypass=False,
+                stop_on_finding=False,
+            )
+            status = (session_dir / 'autopilot' / 'AUTOPILOT_STATUS.txt').read_text(encoding='utf-8')
+
+        self.assertEqual(returncode, 2)
+        self.assertIn('stage=finished_with_failures', status)
+        self.assertIn('stop_reason=operational_retries_exhausted', status)
+        self.assertIn('exhausted_targets=src/a.py', status)
+
     def test_session_state_preserves_bandit_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             session_dir = Path(tmpdir)
