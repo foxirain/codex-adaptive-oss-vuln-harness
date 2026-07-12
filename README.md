@@ -6,6 +6,8 @@
 
 <p align="center"><strong>Core Philosophy — External Signal as Controlled Search Diversity</strong><br>Let search hypotheses diverge; require every surviving finding to converge on the same evidence contract.</p>
 
+> **Project Lineage—** [Codex OSS Vulnerability Harness v2](https://github.com/foxirain/codex-oss-vuln-harness-v2) · *Controlled Signal Comparison* → **Adaptive Codex OSS Vulnerability Harness (v3)** · *Adaptive Multi-Session Search*
+
 > **Project status.** 이 저장소는 범용 OSS 취약점 조사를 위해 구축하고 실제 연구에 사용한 adaptive multi-session LLM-assisted harness의 v3 lineage를 보존한다. 이 계열을 사용한 조사 결과로 직접 귀속된 공개 CVE 6건, 여러 연구자의 보고가 통합된 CVE 1건에 대한 두 variant 기여, CVE가 부여되지 않은 GitHub-reviewed advisory 1건이 공개됐다. 추가 finding 1건은 coordinated disclosure 중이므로 식별자, 대상과 기술 정보를 공개하지 않는다. 하네스는 조사 예산과 attention을 배분하지만 취약점을 자동으로 증명하지 않으며, 최종 재현·영향 판단·보고는 사람이 수행한다.
 >
 > 일부 disclosure는 이 저장소의 첫 public commit보다 앞선다. 따라서 public Git chronology는 이미 iteration 중이던 workflow를 보존한 시점이지, 각 finding의 discovery timestamp나 현재 `main` snapshot 사용을 증명하지 않는다. Per-finding mode log도 완전하게 보존되지 않아 이 문서는 CVE를 `default`, `nosignal`, `coldrisk`, `hotrisk` 중 특정 실행에 사후 귀속하지 않는다.
