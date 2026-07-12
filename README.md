@@ -1,6 +1,6 @@
 # Adaptive Codex OSS Vulnerability Harness
 
-[![CI](https://github.com/FoxCompany-foxirain/ossharness-base-engine-testcoldv3/actions/workflows/ci.yml/badge.svg)](https://github.com/FoxCompany-foxirain/ossharness-base-engine-testcoldv3/actions/workflows/ci.yml)
+[![CI](https://github.com/foxirain/codex-adaptive-oss-vuln-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/foxirain/codex-adaptive-oss-vuln-harness/actions/workflows/ci.yml)
 
 <p align="center"><strong>Research Tool · Public Lineage: 11 April 2026 · Documentation Revision: 11 July 2026</strong></p>
 
@@ -230,8 +230,8 @@ Structured review는 attacker control, reachability, entrypoint, sink, evidence 
 ### B. Installation
 
 ```bash
-git clone https://github.com/FoxCompany-foxirain/ossharness-base-engine-testcoldv3.git
-cd ossharness-base-engine-testcoldv3
+git clone https://github.com/foxirain/codex-adaptive-oss-vuln-harness.git
+cd codex-adaptive-oss-vuln-harness
 
 python3 -m venv .venv
 source .venv/bin/activate
