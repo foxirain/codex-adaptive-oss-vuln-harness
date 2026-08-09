@@ -544,3 +544,7 @@ Recorded public chronology는 다음과 같다.
 [9] listmonk, “List permission bypass in multiple hotpaths,” GitHub Security Advisory GHSA-85j8-5c6w-gcpv, 2026. <https://github.com/knadh/listmonk/security/advisories/GHSA-85j8-5c6w-gcpv>
 
 [10] Caddy, “Remote Admin Authorization Bypass on PKI Endpoints via Prefix-Based Path Matching,” GitHub Security Advisory GHSA-gx7w-56w6-g48x, 2026. <https://github.com/caddyserver/caddy/security/advisories/GHSA-gx7w-56w6-g48x>
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
