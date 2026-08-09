@@ -1,5 +1,7 @@
 # Adaptive Codex OSS Vulnerability Harness
 
+[한국어](README.md) | [English](README.en.md)
+
 [![CI](https://github.com/foxirain/codex-adaptive-oss-vuln-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/foxirain/codex-adaptive-oss-vuln-harness/actions/workflows/ci.yml)
 
 <p align="center"><strong>Research Tool · Public Lineage: 11 April 2026 · Documentation Revision: 30 July 2026</strong></p>
