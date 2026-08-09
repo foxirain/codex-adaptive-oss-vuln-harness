@@ -335,16 +335,31 @@ quicksearchmax-<timestamp>/
 
 **TABLE III — DIRECT PUBLIC OUTCOMES**
 
-| Public outcome | Project | Publicly documented security boundary | Public validation pattern |
-| --- | --- | --- | --- |
-| [CVE-2026-33398](https://github.com/NamelessMC/Nameless/security/advisories/GHSA-2r6x-cv4f-h8fx) | NamelessMC | Low-privileged authenticated user가 `/forum/get_quotes`를 통해 hidden·private forum post를 읽을 수 있는 authorization inconsistency | 정상 topic view의 접근 거부와 quote endpoint의 content disclosure를 비교한 cross-endpoint authorization validation |
-| [CVE-2026-33636](https://github.com/pnggroup/libpng/security/advisories/GHSA-wjr5-c57x-95m2) | libpng | ARM/AArch64 Neon palette expansion의 partial chunk 처리에서 발생하는 out-of-bounds read/write | Architecture-specific memory-boundary audit와 boundary-width input validation |
-| [CVE-2026-33729](https://github.com/openfga/openfga/security/advisories/GHSA-h6c8-cww8-35hf) | OpenFGA | 서로 다른 conditional authorization request가 같은 cache key로 충돌해 이전 결과를 재사용 | Adversarial condition context를 이용한 semantic cache-key collision analysis |
-| [CVE-2026-41429](https://github.com/espressif/arduino-esp32/security/advisories/GHSA-92j9-c75g-2c5f) | arduino-esp32 | Attacker-controlled NBNS `name_len`이 fixed-size buffer에 도달하는 memory corruption | Network-parser taint·bounds audit와 sanitizer-backed minimal harness |
-| [CVE-2026-45692](https://github.com/caddyserver/caddy/security/advisories/GHSA-x5w9-xh9r-mvfc) | Caddy | 문자열 path authorization과 숫자 array-index traversal의 canonicalization 불일치 | Cross-layer path-equivalence differential validation |
-| [CVE-2026-45815](https://www.cve.org/CVERecord?id=CVE-2026-45815) | Apache NimBLE | Specially crafted BLE ATT Read Multiple Variable Response가 ATT parser의 reachable assertion에 도달 | 정상 응답과 malformed length-value 응답을 비교한 protocol-parser boundary validation |
-| [CVE-2026-47391](https://github.com/MervinPraison/PraisonAI/security/advisories/GHSA-vg22-4gmj-prxw) | PraisonAI | 인증 없는 `/a2a` request가 first-party example의 LLM-driven `eval()` tool까지 도달 | Unauthenticated endpoint-to-agent-to-tool-sink trust-boundary validation |
-| [CVE-2026-48168](https://github.com/MervinPraison/PraisonAI/security/advisories/GHSA-xp85-6wwf-r67c) | PraisonAI | Attacker-controlled PR branch name이 privileged GitHub Actions Bash block에 unquoted interpolation | Metadata-to-shell tracing과 cross-step `GITHUB_PATH` canary validation |
+| Public outcome | Project | Severity / CVSS | Publicly documented security boundary | Public validation pattern |
+| --- | --- | --- | --- | --- |
+| [CVE-2026-33398](https://github.com/NamelessMC/Nameless/security/advisories/GHSA-2r6x-cv4f-h8fx) | NamelessMC | **High · Score not published** (GHSA) | Low-privileged authenticated user가 `/forum/get_quotes`를 통해 hidden·private forum post를 읽을 수 있는 authorization inconsistency | 정상 topic view의 접근 거부와 quote endpoint의 content disclosure를 비교한 cross-endpoint authorization validation |
+| [CVE-2026-33636](https://github.com/pnggroup/libpng/security/advisories/GHSA-wjr5-c57x-95m2) | libpng | **High · 7.6 · CVSS 3.1** (GHSA) | ARM/AArch64 Neon palette expansion의 partial chunk 처리에서 발생하는 out-of-bounds read/write | Architecture-specific memory-boundary audit와 boundary-width input validation |
+| [CVE-2026-33729](https://github.com/openfga/openfga/security/advisories/GHSA-h6c8-cww8-35hf) | OpenFGA | **Moderate · 5.8 · CVSS 4.0** (GHSA) | 서로 다른 conditional authorization request가 같은 cache key로 충돌해 이전 결과를 재사용 | Adversarial condition context를 이용한 semantic cache-key collision analysis |
+| [CVE-2026-41429](https://github.com/espressif/arduino-esp32/security/advisories/GHSA-92j9-c75g-2c5f) | arduino-esp32 | **High · 8.8 · CVSS 3.1** (GHSA) | Attacker-controlled NBNS `name_len`이 fixed-size buffer에 도달하는 memory corruption | Network-parser taint·bounds audit와 sanitizer-backed minimal harness |
+| [CVE-2026-45692](https://github.com/caddyserver/caddy/security/advisories/GHSA-x5w9-xh9r-mvfc) | Caddy | **Moderate · 5.4 · CVSS 3.1** (GHSA) | 문자열 path authorization과 숫자 array-index traversal의 canonicalization 불일치 | Cross-layer path-equivalence differential validation |
+| [CVE-2026-45815](https://www.cve.org/CVERecord?id=CVE-2026-45815) | Apache NimBLE | **Moderate** (Apache CNA)<br>**High · 7.5 · CVSS 3.1** (CISA ADP) | Specially crafted BLE ATT Read Multiple Variable Response가 ATT parser의 reachable assertion에 도달 | 정상 응답과 malformed length-value 응답을 비교한 protocol-parser boundary validation |
+| [CVE-2026-47391](https://github.com/MervinPraison/PraisonAI/security/advisories/GHSA-vg22-4gmj-prxw) | PraisonAI | **Critical · 9.8 · CVSS 3.1** (GHSA) | 인증 없는 `/a2a` request가 first-party example의 LLM-driven `eval()` tool까지 도달 | Unauthenticated endpoint-to-agent-to-tool-sink trust-boundary validation |
+| [CVE-2026-48168](https://github.com/MervinPraison/PraisonAI/security/advisories/GHSA-xp85-6wwf-r67c) | PraisonAI | **Critical · 10.0 · CVSS 3.1** (GHSA) | Attacker-controlled PR branch name이 privileged GitHub Actions Bash block에 unquoted interpolation | Metadata-to-shell tracing과 cross-step `GITHUB_PATH` canary validation |
+
+<details>
+<summary><strong>CVSS 출처 (2026-08-09 확인)</strong></summary>
+
+- `CVE-2026-33398`: linked GitHub Security Advisory · High · 공개된 CVSS score 또는 vector 없음
+- `CVE-2026-33636`: linked GitHub Security Advisory · 7.6 High · `CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:H`
+- `CVE-2026-33729`: linked GitHub Security Advisory · 5.8 Moderate · `CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:H`
+- `CVE-2026-41429`: linked GitHub Security Advisory · 8.8 High · `CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`
+- `CVE-2026-45692`: linked GitHub Security Advisory · 5.4 Moderate · `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N`
+- `CVE-2026-45815`: linked CVE record의 Apache CNA 평가는 Moderate이며 numeric CVSS는 없다. CISA ADP 평가는 7.5 High · `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H`
+- `CVE-2026-47391`: linked GitHub Security Advisory · 9.8 Critical · `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`
+- `CVE-2026-48168`: linked GitHub Security Advisory · 10.0 Critical · `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H`
+- 공식 공개 평가를 옮겼으며 별도로 재산정하지 않았다.
+
+</details>
 
 공개 advisory와 CVE record는 [`@Amemoyoi`](https://github.com/Amemoyoi)를 CVE-2026-33398의 finder로, CVE-2026-33636, CVE-2026-41429, CVE-2026-45692, CVE-2026-45815의 reporter로, CVE-2026-33729의 discovery acknowledgement로 기록한다. CVE-2026-33398의 reporter는 [`@HuajiHD`](https://github.com/HuajiHD)이며, 이 문서는 해당 finding을 sole discovery 또는 sole report로 주장하지 않는다. [`@foxirain`](https://github.com/foxirain)은 CVE-2026-47391과 CVE-2026-48168의 reporter로 기록된다. `@Amemoyoi`와 `@foxirain`은 이 프로젝트 연구자의 reporting identities다.
 
@@ -354,9 +369,17 @@ quicksearchmax-<timestamp>/
 
 **TABLE IV — CONTRIBUTION TO A MULTI-REPORTER CONSOLIDATED CVE**
 
-| Public outcome | Project | Exact contribution | Attribution boundary |
-| --- | --- | --- | --- |
-| [CVE-2026-34584](https://github.com/knadh/listmonk/security/advisories/GHSA-85j8-5c6w-gcpv) | listmonk | Unauthorized list의 subscriber에 대한 bulk UI modify·reassign·blocklist variant와 admin subscriber JSON export variant | 여러 연구자의 네 authorization-bypass hotpath가 하나의 CVE로 통합됨. 두 variant 기여이며 sole discovery가 아님 |
+| Public outcome | Project | Severity / CVSS | Exact contribution | Attribution boundary |
+| --- | --- | --- | --- | --- |
+| [CVE-2026-34584](https://github.com/knadh/listmonk/security/advisories/GHSA-85j8-5c6w-gcpv) | listmonk | **Moderate · 5.4 · CVSS 3.1** (consolidated GHSA) | Unauthorized list의 subscriber에 대한 bulk UI modify·reassign·blocklist variant와 admin subscriber JSON export variant | 여러 연구자의 네 authorization-bypass hotpath가 하나의 CVE로 통합됨. 두 variant 기여이며 sole discovery가 아님 |
+
+<details>
+<summary><strong>CVSS 출처 (2026-08-09 확인)</strong></summary>
+
+- `CVE-2026-34584`: linked consolidated GitHub Security Advisory · 5.4 Moderate · `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N`
+- 이 평가는 통합 advisory 전체에 적용되며, 기여한 두 variant의 개별 CVSS로 해석하지 않는다.
+
+</details>
 
 > Contributed two authorization-bypass variants that were consolidated with reports from other researchers into CVE-2026-34584.
 
@@ -366,9 +389,17 @@ quicksearchmax-<timestamp>/
 
 **TABLE V — ADDITIONAL PUBLIC ADVISORY**
 
-| Public outcome | Project | Publicly documented failure mode | Counting rule |
-| --- | --- | --- | --- |
-| [GHSA-gx7w-56w6-g48x](https://github.com/caddyserver/caddy/security/advisories/GHSA-gx7w-56w6-g48x) | Caddy | `/pki/ca/prod` 권한이 prefix matching 때문에 sibling `/pki/ca/prod-backup`에도 적용되는 authorization bypass | GitHub-reviewed advisory이나 알려진 CVE 없음. CVE 합계에서 제외 |
+| Public outcome | Project | Severity / CVSS | Publicly documented failure mode | Counting rule |
+| --- | --- | --- | --- | --- |
+| [GHSA-gx7w-56w6-g48x](https://github.com/caddyserver/caddy/security/advisories/GHSA-gx7w-56w6-g48x) | Caddy | **Moderate · 4.3 · CVSS 3.1** (GHSA) | `/pki/ca/prod` 권한이 prefix matching 때문에 sibling `/pki/ca/prod-backup`에도 적용되는 authorization bypass | GitHub-reviewed advisory이나 알려진 CVE 없음. CVE 합계에서 제외 |
+
+<details>
+<summary><strong>CVSS 출처 (2026-08-09 확인)</strong></summary>
+
+- `GHSA-gx7w-56w6-g48x`: linked GitHub Security Advisory · 4.3 Moderate · `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N`
+- 공식 공개 점수와 vector를 옮겼으며 별도로 재산정하지 않았다.
+
+</details>
 
 공개 advisory는 `@Amemoyoi`를 reporter로 기록한다.
 

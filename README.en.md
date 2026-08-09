@@ -335,16 +335,31 @@ The public results below are operational outcomes of the v3-assisted research li
 
 **TABLE III — DIRECT PUBLIC OUTCOMES**
 
-| Public outcome | Project | Publicly documented security boundary | Public validation pattern |
-| --- | --- | --- | --- |
-| [CVE-2026-33398](https://github.com/NamelessMC/Nameless/security/advisories/GHSA-2r6x-cv4f-h8fx) | NamelessMC | Authorization inconsistency allowing a low-privileged authenticated user to read hidden and private forum posts through `/forum/get_quotes` | Cross-endpoint authorization validation comparing access denial in the normal topic view with content disclosure from the quote endpoint |
-| [CVE-2026-33636](https://github.com/pnggroup/libpng/security/advisories/GHSA-wjr5-c57x-95m2) | libpng | Out-of-bounds read/write during partial-chunk handling in ARM/AArch64 Neon palette expansion | Architecture-specific memory-boundary audit and boundary-width input validation |
-| [CVE-2026-33729](https://github.com/openfga/openfga/security/advisories/GHSA-h6c8-cww8-35hf) | OpenFGA | Different conditional authorization requests collide on the same cache key and reuse a previous result | Semantic cache-key collision analysis using adversarial condition context |
-| [CVE-2026-41429](https://github.com/espressif/arduino-esp32/security/advisories/GHSA-92j9-c75g-2c5f) | arduino-esp32 | Memory corruption where attacker-controlled NBNS `name_len` reaches a fixed-size buffer | Network-parser taint/bounds audit and sanitizer-backed minimal harness |
-| [CVE-2026-45692](https://github.com/caddyserver/caddy/security/advisories/GHSA-x5w9-xh9r-mvfc) | Caddy | Canonicalization mismatch between string-path authorization and numeric array-index traversal | Cross-layer path-equivalence differential validation |
-| [CVE-2026-45815](https://www.cve.org/CVERecord?id=CVE-2026-45815) | Apache NimBLE | Specially crafted BLE ATT Read Multiple Variable Response reaches a reachable assertion in the ATT parser | Protocol-parser boundary validation comparing a normal response with a malformed length-value response |
-| [CVE-2026-47391](https://github.com/MervinPraison/PraisonAI/security/advisories/GHSA-vg22-4gmj-prxw) | PraisonAI | Unauthenticated `/a2a` request reaches the LLM-driven `eval()` tool in a first-party example | Unauthenticated endpoint-to-agent-to-tool-sink trust-boundary validation |
-| [CVE-2026-48168](https://github.com/MervinPraison/PraisonAI/security/advisories/GHSA-xp85-6wwf-r67c) | PraisonAI | Attacker-controlled PR branch name is interpolated without quoting into a privileged GitHub Actions Bash block | Metadata-to-shell tracing and cross-step `GITHUB_PATH` canary validation |
+| Public outcome | Project | Severity / CVSS | Publicly documented security boundary | Public validation pattern |
+| --- | --- | --- | --- | --- |
+| [CVE-2026-33398](https://github.com/NamelessMC/Nameless/security/advisories/GHSA-2r6x-cv4f-h8fx) | NamelessMC | **High · Score not published** (GHSA) | Authorization inconsistency allowing a low-privileged authenticated user to read hidden and private forum posts through `/forum/get_quotes` | Cross-endpoint authorization validation comparing access denial in the normal topic view with content disclosure from the quote endpoint |
+| [CVE-2026-33636](https://github.com/pnggroup/libpng/security/advisories/GHSA-wjr5-c57x-95m2) | libpng | **High · 7.6 · CVSS 3.1** (GHSA) | Out-of-bounds read/write during partial-chunk handling in ARM/AArch64 Neon palette expansion | Architecture-specific memory-boundary audit and boundary-width input validation |
+| [CVE-2026-33729](https://github.com/openfga/openfga/security/advisories/GHSA-h6c8-cww8-35hf) | OpenFGA | **Moderate · 5.8 · CVSS 4.0** (GHSA) | Different conditional authorization requests collide on the same cache key and reuse a previous result | Semantic cache-key collision analysis using adversarial condition context |
+| [CVE-2026-41429](https://github.com/espressif/arduino-esp32/security/advisories/GHSA-92j9-c75g-2c5f) | arduino-esp32 | **High · 8.8 · CVSS 3.1** (GHSA) | Memory corruption where attacker-controlled NBNS `name_len` reaches a fixed-size buffer | Network-parser taint/bounds audit and sanitizer-backed minimal harness |
+| [CVE-2026-45692](https://github.com/caddyserver/caddy/security/advisories/GHSA-x5w9-xh9r-mvfc) | Caddy | **Moderate · 5.4 · CVSS 3.1** (GHSA) | Canonicalization mismatch between string-path authorization and numeric array-index traversal | Cross-layer path-equivalence differential validation |
+| [CVE-2026-45815](https://www.cve.org/CVERecord?id=CVE-2026-45815) | Apache NimBLE | **Moderate** (Apache CNA)<br>**High · 7.5 · CVSS 3.1** (CISA ADP) | Specially crafted BLE ATT Read Multiple Variable Response reaches a reachable assertion in the ATT parser | Protocol-parser boundary validation comparing a normal response with a malformed length-value response |
+| [CVE-2026-47391](https://github.com/MervinPraison/PraisonAI/security/advisories/GHSA-vg22-4gmj-prxw) | PraisonAI | **Critical · 9.8 · CVSS 3.1** (GHSA) | Unauthenticated `/a2a` request reaches the LLM-driven `eval()` tool in a first-party example | Unauthenticated endpoint-to-agent-to-tool-sink trust-boundary validation |
+| [CVE-2026-48168](https://github.com/MervinPraison/PraisonAI/security/advisories/GHSA-xp85-6wwf-r67c) | PraisonAI | **Critical · 10.0 · CVSS 3.1** (GHSA) | Attacker-controlled PR branch name is interpolated without quoting into a privileged GitHub Actions Bash block | Metadata-to-shell tracing and cross-step `GITHUB_PATH` canary validation |
+
+<details>
+<summary><strong>CVSS provenance (checked 2026-08-09)</strong></summary>
+
+- `CVE-2026-33398`: linked GitHub Security Advisory · High · no published CVSS score or vector
+- `CVE-2026-33636`: linked GitHub Security Advisory · 7.6 High · `CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:H`
+- `CVE-2026-33729`: linked GitHub Security Advisory · 5.8 Moderate · `CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:H`
+- `CVE-2026-41429`: linked GitHub Security Advisory · 8.8 High · `CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`
+- `CVE-2026-45692`: linked GitHub Security Advisory · 5.4 Moderate · `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N`
+- `CVE-2026-45815`: the Apache CNA assessment in the linked CVE record is Moderate with no numeric CVSS. The CISA ADP assessment is 7.5 High · `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H`
+- `CVE-2026-47391`: linked GitHub Security Advisory · 9.8 Critical · `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`
+- `CVE-2026-48168`: linked GitHub Security Advisory · 10.0 Critical · `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H`
+- The officially published assessments are reproduced without independent rescoring.
+
+</details>
 
 The public advisories and CVE records list [`@Amemoyoi`](https://github.com/Amemoyoi) as the finder of CVE-2026-33398, the reporter of CVE-2026-33636, CVE-2026-41429, CVE-2026-45692, and CVE-2026-45815, and in the discovery acknowledgement for CVE-2026-33729. [`@HuajiHD`](https://github.com/HuajiHD) is the reporter of CVE-2026-33398, and this document does not claim sole discovery or sole reporting of that finding. [`@foxirain`](https://github.com/foxirain) is listed as the reporter of CVE-2026-47391 and CVE-2026-48168. `@Amemoyoi` and `@foxirain` are reporting identities of this project's researcher.
 
@@ -354,9 +369,17 @@ There are 8 directly attributed public CVEs. The `Public validation pattern` ent
 
 **TABLE IV — CONTRIBUTION TO A MULTI-REPORTER CONSOLIDATED CVE**
 
-| Public outcome | Project | Exact contribution | Attribution boundary |
-| --- | --- | --- | --- |
-| [CVE-2026-34584](https://github.com/knadh/listmonk/security/advisories/GHSA-85j8-5c6w-gcpv) | listmonk | Bulk UI modify/reassign/blocklist variant for subscribers of an unauthorized list, plus an admin subscriber JSON export variant | Four authorization-bypass hot paths from multiple researchers were consolidated into one CVE; contribution of two variants, not sole discovery |
+| Public outcome | Project | Severity / CVSS | Exact contribution | Attribution boundary |
+| --- | --- | --- | --- | --- |
+| [CVE-2026-34584](https://github.com/knadh/listmonk/security/advisories/GHSA-85j8-5c6w-gcpv) | listmonk | **Moderate · 5.4 · CVSS 3.1** (consolidated GHSA) | Bulk UI modify/reassign/blocklist variant for subscribers of an unauthorized list, plus an admin subscriber JSON export variant | Four authorization-bypass hot paths from multiple researchers were consolidated into one CVE; contribution of two variants, not sole discovery |
+
+<details>
+<summary><strong>CVSS provenance (checked 2026-08-09)</strong></summary>
+
+- `CVE-2026-34584`: linked consolidated GitHub Security Advisory · 5.4 Moderate · `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N`
+- This assessment applies to the consolidated advisory as a whole, not separately to the two contributed variants.
+
+</details>
 
 > Contributed two authorization-bypass variants that were consolidated with reports from other researchers into CVE-2026-34584.
 
@@ -366,9 +389,17 @@ This item is not counted as a separate solely discovered CVE in addition to the 
 
 **TABLE V — ADDITIONAL PUBLIC ADVISORY**
 
-| Public outcome | Project | Publicly documented failure mode | Counting rule |
-| --- | --- | --- | --- |
-| [GHSA-gx7w-56w6-g48x](https://github.com/caddyserver/caddy/security/advisories/GHSA-gx7w-56w6-g48x) | Caddy | Authorization bypass where permission for `/pki/ca/prod` also applies to sibling `/pki/ca/prod-backup` because of prefix matching | GitHub-reviewed advisory with no known CVE; excluded from the CVE total |
+| Public outcome | Project | Severity / CVSS | Publicly documented failure mode | Counting rule |
+| --- | --- | --- | --- | --- |
+| [GHSA-gx7w-56w6-g48x](https://github.com/caddyserver/caddy/security/advisories/GHSA-gx7w-56w6-g48x) | Caddy | **Moderate · 4.3 · CVSS 3.1** (GHSA) | Authorization bypass where permission for `/pki/ca/prod` also applies to sibling `/pki/ca/prod-backup` because of prefix matching | GitHub-reviewed advisory with no known CVE; excluded from the CVE total |
+
+<details>
+<summary><strong>CVSS provenance (checked 2026-08-09)</strong></summary>
+
+- `GHSA-gx7w-56w6-g48x`: linked GitHub Security Advisory · 4.3 Moderate · `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N`
+- The officially published score and vector are reproduced without independent rescoring.
+
+</details>
 
 The public advisory lists `@Amemoyoi` as the reporter.
 
