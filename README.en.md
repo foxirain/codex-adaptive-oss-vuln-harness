@@ -10,7 +10,7 @@
 
 > **Project Lineage—** [Codex OSS Vulnerability Harness v2](https://github.com/foxirain/codex-oss-vuln-harness-v2) · *Controlled Signal Comparison* → **Adaptive Codex OSS Vulnerability Harness (v3)** · *Adaptive Multi-Session Search*
 
-> **Project status.** This repository preserves the v3 lineage of an adaptive multi-session LLM-assisted harness built for general OSS vulnerability research and used in real investigations. Research using this lineage has resulted in 7 directly attributed public CVEs, contributions of two variants to 1 CVE consolidating reports from multiple researchers, and 1 GitHub-reviewed advisory without a CVE. The harness allocates investigation budget and attention but does not prove vulnerabilities automatically; final reproduction, impact assessment, and reporting are performed by humans.
+> **Project status.** This repository preserves the v3 lineage of an adaptive multi-session LLM-assisted harness built for general OSS vulnerability research and used in real investigations. Research using this lineage has contributed to 8 public CVEs in total: 7 directly attributed CVEs and 1 listmonk CVE consolidating reports from multiple researchers (two variant contributions). It also resulted in 1 GitHub-reviewed advisory without a CVE. The harness allocates investigation budget and attention but does not prove vulnerabilities automatically; final reproduction, impact assessment, and reporting are performed by humans.
 >
 > Some disclosures predate this repository's first public commit. The public Git chronology therefore marks when an already iterative workflow was preserved; it does not establish each finding's discovery timestamp or use of the current `main` snapshot. Per-finding mode logs were also not preserved completely, so this document does not retrospectively attribute CVEs to specific `default`, `nosignal`, `coldrisk`, or `hotrisk` runs.
 
@@ -361,7 +361,7 @@ The public results below are operational outcomes of the v3-assisted research li
 
 The public advisories and CVE records list [`@Amemoyoi`](https://github.com/Amemoyoi) as the finder of CVE-2026-33398, the reporter of CVE-2026-41429, CVE-2026-45692, and CVE-2026-45815, and in the discovery acknowledgement for CVE-2026-33729. [`@HuajiHD`](https://github.com/HuajiHD) is the reporter of CVE-2026-33398, and this document does not claim sole discovery or sole reporting of that finding. [`@foxirain`](https://github.com/foxirain) is listed as the reporter of CVE-2026-47391 and CVE-2026-48168. `@Amemoyoi` and `@foxirain` are reporting identities of this project's researcher.
 
-There are 7 directly attributed public CVEs. The `Public validation pattern` entries above summarize the published reproduction and analysis structure; they do not reconstruct historical modes that were not preserved.
+The table above lists 7 directly attributed public CVEs; including the consolidated listmonk CVE below, the total is 8 public CVEs with contributions. The `Public validation pattern` entries above summarize the published reproduction and analysis structure; they do not reconstruct historical modes that were not preserved.
 
 ### B. Consolidated CVE Contribution
 
@@ -381,7 +381,7 @@ There are 7 directly attributed public CVEs. The `Public validation pattern` ent
 
 > Contributed two authorization-bypass variants that were consolidated with reports from other researchers into CVE-2026-34584.
 
-This item is not counted as a separate solely discovered CVE in addition to the 7 directly attributed CVEs.
+This item counts as 1 jointly contributed CVE, bringing the total to 8 public CVEs with contributions (7 directly attributed CVEs + 1 consolidated listmonk CVE). The two variants are contributions to a single CVE, with no claim of sole discovery.
 
 ### C. Additional GitHub-Reviewed Advisory Without a CVE
 
@@ -511,7 +511,7 @@ The central principle to preserve is:
 
 `Adaptive Codex OSS Vulnerability Harness` does not use an LLM as a vulnerability oracle. To reduce early convergence caused by a single ranking, it separates signal hypotheses, combines a deterministic fixed prefix with an adaptive tail, and requires strong candidates to pass the same structured evidence contract.
 
-This version lineage led to 7 directly attributed public CVEs, two authorization-bypass variants included in a consolidated CVE, and an additional GitHub-reviewed advisory. More important than the CVE count itself, however, is that it combined **External Signal, controlled diversity, bounded adaptation, strict validation, and human proof** into one repeatable research workflow.
+This version lineage led to contributions to 8 public CVEs in total (7 directly attributed CVEs + 1 consolidated listmonk CVE with two authorization-bypass variant contributions) and an additional GitHub-reviewed advisory. More important than the CVE count itself, however, is that it combined **External Signal, controlled diversity, bounded adaptation, strict validation, and human proof** into one repeatable research workflow.
 
 ## Appendix A. Repository Layout
 
