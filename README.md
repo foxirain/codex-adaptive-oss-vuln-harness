@@ -10,7 +10,7 @@
 
 > **Project Lineage—** [Codex OSS Vulnerability Harness v2](https://github.com/foxirain/codex-oss-vuln-harness-v2) · *Controlled Signal Comparison* → **Adaptive Codex OSS Vulnerability Harness (v3)** · *Adaptive Multi-Session Search*
 
-> **Project status.** 이 저장소는 범용 OSS 취약점 조사를 위해 구축하고 실제 연구에 사용한 adaptive multi-session LLM-assisted harness의 v3 lineage를 보존한다. 이 계열을 사용한 조사 결과로 직접 귀속된 공개 CVE 8건, 여러 연구자의 보고가 통합된 CVE 1건에 대한 두 variant 기여, CVE가 부여되지 않은 GitHub-reviewed advisory 1건이 공개됐다. 하네스는 조사 예산과 attention을 배분하지만 취약점을 자동으로 증명하지 않으며, 최종 재현·영향 판단·보고는 사람이 수행한다.
+> **Project status.** 이 저장소는 범용 OSS 취약점 조사를 위해 구축하고 실제 연구에 사용한 adaptive multi-session LLM-assisted harness의 v3 lineage를 보존한다. 이 계열을 사용한 조사 결과로 직접 귀속된 공개 CVE 7건, 여러 연구자의 보고가 통합된 CVE 1건에 대한 두 variant 기여, CVE가 부여되지 않은 GitHub-reviewed advisory 1건이 공개됐다. 하네스는 조사 예산과 attention을 배분하지만 취약점을 자동으로 증명하지 않으며, 최종 재현·영향 판단·보고는 사람이 수행한다.
 >
 > 일부 disclosure는 이 저장소의 첫 public commit보다 앞선다. 따라서 public Git chronology는 이미 iteration 중이던 workflow를 보존한 시점이지, 각 finding의 discovery timestamp나 현재 `main` snapshot 사용을 증명하지 않는다. Per-finding mode log도 완전하게 보존되지 않아 이 문서는 CVE를 `default`, `nosignal`, `coldrisk`, `hotrisk` 중 특정 실행에 사후 귀속하지 않는다.
 
@@ -338,7 +338,6 @@ quicksearchmax-<timestamp>/
 | Public outcome | Project | Severity / CVSS | Publicly documented security boundary | Public validation pattern |
 | --- | --- | --- | --- | --- |
 | [CVE-2026-33398](https://github.com/NamelessMC/Nameless/security/advisories/GHSA-2r6x-cv4f-h8fx) | NamelessMC | ![High](https://img.shields.io/badge/High-C2410C?style=flat-square) **Score not published** (GHSA) | Low-privileged authenticated user가 `/forum/get_quotes`를 통해 hidden·private forum post를 읽을 수 있는 authorization inconsistency | 정상 topic view의 접근 거부와 quote endpoint의 content disclosure를 비교한 cross-endpoint authorization validation |
-| [CVE-2026-33636](https://github.com/pnggroup/libpng/security/advisories/GHSA-wjr5-c57x-95m2) | libpng | ![High](https://img.shields.io/badge/High-C2410C?style=flat-square) **7.6 · CVSS 3.1** (GHSA) | ARM/AArch64 Neon palette expansion의 partial chunk 처리에서 발생하는 out-of-bounds read/write | Architecture-specific memory-boundary audit와 boundary-width input validation |
 | [CVE-2026-33729](https://github.com/openfga/openfga/security/advisories/GHSA-h6c8-cww8-35hf) | OpenFGA | ![Moderate](https://img.shields.io/badge/Moderate-8A6500?style=flat-square) **5.8 · CVSS 4.0** (GHSA) | 서로 다른 conditional authorization request가 같은 cache key로 충돌해 이전 결과를 재사용 | Adversarial condition context를 이용한 semantic cache-key collision analysis |
 | [CVE-2026-41429](https://github.com/espressif/arduino-esp32/security/advisories/GHSA-92j9-c75g-2c5f) | arduino-esp32 | ![High](https://img.shields.io/badge/High-C2410C?style=flat-square) **8.8 · CVSS 3.1** (GHSA) | Attacker-controlled NBNS `name_len`이 fixed-size buffer에 도달하는 memory corruption | Network-parser taint·bounds audit와 sanitizer-backed minimal harness |
 | [CVE-2026-45692](https://github.com/caddyserver/caddy/security/advisories/GHSA-x5w9-xh9r-mvfc) | Caddy | ![Moderate](https://img.shields.io/badge/Moderate-8A6500?style=flat-square) **5.4 · CVSS 3.1** (GHSA) | 문자열 path authorization과 숫자 array-index traversal의 canonicalization 불일치 | Cross-layer path-equivalence differential validation |
@@ -350,7 +349,6 @@ quicksearchmax-<timestamp>/
 <summary><strong>CVSS 출처 (2026-08-09 확인)</strong></summary>
 
 - `CVE-2026-33398`: linked GitHub Security Advisory · High · 공개된 CVSS score 또는 vector 없음
-- `CVE-2026-33636`: linked GitHub Security Advisory · 7.6 High · `CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:H`
 - `CVE-2026-33729`: linked GitHub Security Advisory · 5.8 Moderate · `CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:H`
 - `CVE-2026-41429`: linked GitHub Security Advisory · 8.8 High · `CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`
 - `CVE-2026-45692`: linked GitHub Security Advisory · 5.4 Moderate · `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N`
@@ -361,9 +359,9 @@ quicksearchmax-<timestamp>/
 
 </details>
 
-공개 advisory와 CVE record는 [`@Amemoyoi`](https://github.com/Amemoyoi)를 CVE-2026-33398의 finder로, CVE-2026-33636, CVE-2026-41429, CVE-2026-45692, CVE-2026-45815의 reporter로, CVE-2026-33729의 discovery acknowledgement로 기록한다. CVE-2026-33398의 reporter는 [`@HuajiHD`](https://github.com/HuajiHD)이며, 이 문서는 해당 finding을 sole discovery 또는 sole report로 주장하지 않는다. [`@foxirain`](https://github.com/foxirain)은 CVE-2026-47391과 CVE-2026-48168의 reporter로 기록된다. `@Amemoyoi`와 `@foxirain`은 이 프로젝트 연구자의 reporting identities다.
+공개 advisory와 CVE record는 [`@Amemoyoi`](https://github.com/Amemoyoi)를 CVE-2026-33398의 finder로, CVE-2026-41429, CVE-2026-45692, CVE-2026-45815의 reporter로, CVE-2026-33729의 discovery acknowledgement로 기록한다. CVE-2026-33398의 reporter는 [`@HuajiHD`](https://github.com/HuajiHD)이며, 이 문서는 해당 finding을 sole discovery 또는 sole report로 주장하지 않는다. [`@foxirain`](https://github.com/foxirain)은 CVE-2026-47391과 CVE-2026-48168의 reporter로 기록된다. `@Amemoyoi`와 `@foxirain`은 이 프로젝트 연구자의 reporting identities다.
 
-직접 귀속된 공개 CVE는 8건이다. 위 `Public validation pattern`은 공개된 재현·분석 구조의 요약이지 보존되지 않은 historical mode를 복원한 것이 아니다.
+직접 귀속된 공개 CVE는 7건이다. 위 `Public validation pattern`은 공개된 재현·분석 구조의 요약이지 보존되지 않은 historical mode를 복원한 것이 아니다.
 
 ### B. Consolidated CVE Contribution
 
@@ -383,7 +381,7 @@ quicksearchmax-<timestamp>/
 
 > Contributed two authorization-bypass variants that were consolidated with reports from other researchers into CVE-2026-34584.
 
-이 항목은 직접 귀속 CVE 8건에 더해 별도의 단독 발견 CVE로 계산하지 않는다.
+이 항목은 직접 귀속 CVE 7건에 더해 별도의 단독 발견 CVE로 계산하지 않는다.
 
 ### C. Additional GitHub-Reviewed Advisory Without a CVE
 
@@ -513,7 +511,7 @@ Recorded public chronology는 다음과 같다.
 
 `Adaptive Codex OSS Vulnerability Harness`는 LLM을 취약점 판정기로 사용하지 않는다. 이 프로젝트는 하나의 ranking이 만드는 조기 수렴을 줄이기 위해 signal hypothesis를 분리하고, deterministic fixed prefix와 adaptive tail을 결합하며, 강한 후보가 동일한 structured evidence contract를 통과하도록 만든다.
 
-이 version lineage는 직접 귀속된 공개 CVE 8건, 통합 CVE에 포함된 두 authorization-bypass variant와 추가 GitHub-reviewed advisory로 이어졌다. 그러나 가장 중요한 결과는 CVE 수 자체보다 **External Signal, controlled diversity, bounded adaptation, strict validation, human proof**를 하나의 반복 가능한 연구 workflow로 만든 데 있다.
+이 version lineage는 직접 귀속된 공개 CVE 7건, 통합 CVE에 포함된 두 authorization-bypass variant와 추가 GitHub-reviewed advisory로 이어졌다. 그러나 가장 중요한 결과는 CVE 수 자체보다 **External Signal, controlled diversity, bounded adaptation, strict validation, human proof**를 하나의 반복 가능한 연구 workflow로 만든 데 있다.
 
 ## Appendix A. Repository Layout
 
@@ -561,8 +559,6 @@ Recorded public chronology는 다음과 같다.
 [1] foxirain, “Codex OSS Vulnerability Harness v2,” GitHub repository. <https://github.com/foxirain/codex-oss-vuln-harness-v2>
 
 [2] OpenAI, “Codex CLI.” <https://developers.openai.com/codex/cli/>
-
-[3] pnggroup, “Out-of-bounds read/write in the palette expansion on ARM Neon,” GitHub Security Advisory GHSA-wjr5-c57x-95m2, 2026. <https://github.com/pnggroup/libpng/security/advisories/GHSA-wjr5-c57x-95m2>
 
 [4] OpenFGA, “OpenFGA Improper Policy Enforcement,” GitHub Security Advisory GHSA-h6c8-cww8-35hf, 2026. <https://github.com/openfga/openfga/security/advisories/GHSA-h6c8-cww8-35hf>
 

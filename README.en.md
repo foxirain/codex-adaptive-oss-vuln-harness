@@ -10,7 +10,7 @@
 
 > **Project Lineage—** [Codex OSS Vulnerability Harness v2](https://github.com/foxirain/codex-oss-vuln-harness-v2) · *Controlled Signal Comparison* → **Adaptive Codex OSS Vulnerability Harness (v3)** · *Adaptive Multi-Session Search*
 
-> **Project status.** This repository preserves the v3 lineage of an adaptive multi-session LLM-assisted harness built for general OSS vulnerability research and used in real investigations. Research using this lineage has resulted in 8 directly attributed public CVEs, contributions of two variants to 1 CVE consolidating reports from multiple researchers, and 1 GitHub-reviewed advisory without a CVE. The harness allocates investigation budget and attention but does not prove vulnerabilities automatically; final reproduction, impact assessment, and reporting are performed by humans.
+> **Project status.** This repository preserves the v3 lineage of an adaptive multi-session LLM-assisted harness built for general OSS vulnerability research and used in real investigations. Research using this lineage has resulted in 7 directly attributed public CVEs, contributions of two variants to 1 CVE consolidating reports from multiple researchers, and 1 GitHub-reviewed advisory without a CVE. The harness allocates investigation budget and attention but does not prove vulnerabilities automatically; final reproduction, impact assessment, and reporting are performed by humans.
 >
 > Some disclosures predate this repository's first public commit. The public Git chronology therefore marks when an already iterative workflow was preserved; it does not establish each finding's discovery timestamp or use of the current `main` snapshot. Per-finding mode logs were also not preserved completely, so this document does not retrospectively attribute CVEs to specific `default`, `nosignal`, `coldrisk`, or `hotrisk` runs.
 
@@ -338,7 +338,6 @@ The public results below are operational outcomes of the v3-assisted research li
 | Public outcome | Project | Severity / CVSS | Publicly documented security boundary | Public validation pattern |
 | --- | --- | --- | --- | --- |
 | [CVE-2026-33398](https://github.com/NamelessMC/Nameless/security/advisories/GHSA-2r6x-cv4f-h8fx) | NamelessMC | ![High](https://img.shields.io/badge/High-C2410C?style=flat-square) **Score not published** (GHSA) | Authorization inconsistency allowing a low-privileged authenticated user to read hidden and private forum posts through `/forum/get_quotes` | Cross-endpoint authorization validation comparing access denial in the normal topic view with content disclosure from the quote endpoint |
-| [CVE-2026-33636](https://github.com/pnggroup/libpng/security/advisories/GHSA-wjr5-c57x-95m2) | libpng | ![High](https://img.shields.io/badge/High-C2410C?style=flat-square) **7.6 · CVSS 3.1** (GHSA) | Out-of-bounds read/write during partial-chunk handling in ARM/AArch64 Neon palette expansion | Architecture-specific memory-boundary audit and boundary-width input validation |
 | [CVE-2026-33729](https://github.com/openfga/openfga/security/advisories/GHSA-h6c8-cww8-35hf) | OpenFGA | ![Moderate](https://img.shields.io/badge/Moderate-8A6500?style=flat-square) **5.8 · CVSS 4.0** (GHSA) | Different conditional authorization requests collide on the same cache key and reuse a previous result | Semantic cache-key collision analysis using adversarial condition context |
 | [CVE-2026-41429](https://github.com/espressif/arduino-esp32/security/advisories/GHSA-92j9-c75g-2c5f) | arduino-esp32 | ![High](https://img.shields.io/badge/High-C2410C?style=flat-square) **8.8 · CVSS 3.1** (GHSA) | Memory corruption where attacker-controlled NBNS `name_len` reaches a fixed-size buffer | Network-parser taint/bounds audit and sanitizer-backed minimal harness |
 | [CVE-2026-45692](https://github.com/caddyserver/caddy/security/advisories/GHSA-x5w9-xh9r-mvfc) | Caddy | ![Moderate](https://img.shields.io/badge/Moderate-8A6500?style=flat-square) **5.4 · CVSS 3.1** (GHSA) | Canonicalization mismatch between string-path authorization and numeric array-index traversal | Cross-layer path-equivalence differential validation |
@@ -350,7 +349,6 @@ The public results below are operational outcomes of the v3-assisted research li
 <summary><strong>CVSS provenance (checked 2026-08-09)</strong></summary>
 
 - `CVE-2026-33398`: linked GitHub Security Advisory · High · no published CVSS score or vector
-- `CVE-2026-33636`: linked GitHub Security Advisory · 7.6 High · `CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:H`
 - `CVE-2026-33729`: linked GitHub Security Advisory · 5.8 Moderate · `CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:H`
 - `CVE-2026-41429`: linked GitHub Security Advisory · 8.8 High · `CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`
 - `CVE-2026-45692`: linked GitHub Security Advisory · 5.4 Moderate · `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N`
@@ -361,9 +359,9 @@ The public results below are operational outcomes of the v3-assisted research li
 
 </details>
 
-The public advisories and CVE records list [`@Amemoyoi`](https://github.com/Amemoyoi) as the finder of CVE-2026-33398, the reporter of CVE-2026-33636, CVE-2026-41429, CVE-2026-45692, and CVE-2026-45815, and in the discovery acknowledgement for CVE-2026-33729. [`@HuajiHD`](https://github.com/HuajiHD) is the reporter of CVE-2026-33398, and this document does not claim sole discovery or sole reporting of that finding. [`@foxirain`](https://github.com/foxirain) is listed as the reporter of CVE-2026-47391 and CVE-2026-48168. `@Amemoyoi` and `@foxirain` are reporting identities of this project's researcher.
+The public advisories and CVE records list [`@Amemoyoi`](https://github.com/Amemoyoi) as the finder of CVE-2026-33398, the reporter of CVE-2026-41429, CVE-2026-45692, and CVE-2026-45815, and in the discovery acknowledgement for CVE-2026-33729. [`@HuajiHD`](https://github.com/HuajiHD) is the reporter of CVE-2026-33398, and this document does not claim sole discovery or sole reporting of that finding. [`@foxirain`](https://github.com/foxirain) is listed as the reporter of CVE-2026-47391 and CVE-2026-48168. `@Amemoyoi` and `@foxirain` are reporting identities of this project's researcher.
 
-There are 8 directly attributed public CVEs. The `Public validation pattern` entries above summarize the published reproduction and analysis structure; they do not reconstruct historical modes that were not preserved.
+There are 7 directly attributed public CVEs. The `Public validation pattern` entries above summarize the published reproduction and analysis structure; they do not reconstruct historical modes that were not preserved.
 
 ### B. Consolidated CVE Contribution
 
@@ -383,7 +381,7 @@ There are 8 directly attributed public CVEs. The `Public validation pattern` ent
 
 > Contributed two authorization-bypass variants that were consolidated with reports from other researchers into CVE-2026-34584.
 
-This item is not counted as a separate solely discovered CVE in addition to the 8 directly attributed CVEs.
+This item is not counted as a separate solely discovered CVE in addition to the 7 directly attributed CVEs.
 
 ### C. Additional GitHub-Reviewed Advisory Without a CVE
 
@@ -513,7 +511,7 @@ The central principle to preserve is:
 
 `Adaptive Codex OSS Vulnerability Harness` does not use an LLM as a vulnerability oracle. To reduce early convergence caused by a single ranking, it separates signal hypotheses, combines a deterministic fixed prefix with an adaptive tail, and requires strong candidates to pass the same structured evidence contract.
 
-This version lineage led to 8 directly attributed public CVEs, two authorization-bypass variants included in a consolidated CVE, and an additional GitHub-reviewed advisory. More important than the CVE count itself, however, is that it combined **External Signal, controlled diversity, bounded adaptation, strict validation, and human proof** into one repeatable research workflow.
+This version lineage led to 7 directly attributed public CVEs, two authorization-bypass variants included in a consolidated CVE, and an additional GitHub-reviewed advisory. More important than the CVE count itself, however, is that it combined **External Signal, controlled diversity, bounded adaptation, strict validation, and human proof** into one repeatable research workflow.
 
 ## Appendix A. Repository Layout
 
@@ -561,8 +559,6 @@ For detailed policy and commands, see [`docs/OSS_HARNESS.md`](docs/OSS_HARNESS.m
 [1] foxirain, “Codex OSS Vulnerability Harness v2,” GitHub repository. <https://github.com/foxirain/codex-oss-vuln-harness-v2>
 
 [2] OpenAI, “Codex CLI.” <https://developers.openai.com/codex/cli/>
-
-[3] pnggroup, “Out-of-bounds read/write in the palette expansion on ARM Neon,” GitHub Security Advisory GHSA-wjr5-c57x-95m2, 2026. <https://github.com/pnggroup/libpng/security/advisories/GHSA-wjr5-c57x-95m2>
 
 [4] OpenFGA, “OpenFGA Improper Policy Enforcement,” GitHub Security Advisory GHSA-h6c8-cww8-35hf, 2026. <https://github.com/openfga/openfga/security/advisories/GHSA-h6c8-cww8-35hf>
 
